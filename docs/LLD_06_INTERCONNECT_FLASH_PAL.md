@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_06_INTERCONNECT_FLASH_PAL.md`
 **对应HLD**：`docs/HLD_06_INTERCONNECT_FLASH_PAL.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）；hybrid bonding依赖🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
+**设计状态**：🟡 `PARTIAL`（`status: PARTIAL`）；hybrid bonding依赖🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
 **覆盖需求**：`PAL-001`至`PAL-007`
 
 ## 修订历史
@@ -60,7 +60,7 @@
 
 ## 4. 头文件与公开边界
 
-`include/openhbx/interconnect/types.h`导出Transfer与route值类型；不得依赖07内部头。`fabric.h`导出`IInterconnectFabric`；`include/openhbx/pal/flash_pal.h`导出05调用端口；`include/openhbx/pal/media_port.h`定义窄`IFlashMediaPort`；`tsv_repair.h`导出fault输入与只读snapshot。`detail/eat_table.h`和`src/pal/pal_context.h`为私有头，其他模块不得包含。
+`include/openhbx/interconnect/types.h`导出Transfer与route值类型；不得依赖07内部头。`fabric.h`导出`InterconnectFabric`；`include/openhbx/pal/flash_pal.h`导出05调用端口；`include/openhbx/pal/media_port.h`定义窄`IFlashMediaPort`；`tsv_repair.h`导出fault输入与只读snapshot。`detail/eat_table.h`和`src/pal/pal_context.h`为私有头，其他模块不得包含。
 
 ## 5. 函数与接口详细设计
 
@@ -70,7 +70,7 @@
 
 ### `TransferReservation Fabric::try_reserve(const Transfer&, Cycle now)`
 
-展开route、排序去重resource ID，按`(direction, resource ID)`选择EAT并以`start=max(now,EAT...)`计算end；全部checked成功后一次更新对应方向的EAT。任何错误返回时table版本和值不变。复杂度`O(R log R)`，R为route资源数。Forward/Return使用独立EAT以表达full-duplex，但共享全局inflight credit。
+展开route、排序去重resource ID，按`(direction, resource ID)`选择EAT并以`start=max(now,EAT...)`计算end；全部checked成功后一次更新对应方向的EAT。任何错误返回时table版本和值不变。复杂度`O(R log R)`，R为route资源数。Forward/Return使用独立EAT以表达full-duplex；inflight credit 按 channel 计费（CHAN-013，ADR-CHAN-009：原 cube 级共享池会使一个 channel 的压力挤占其他 channel 的在途预算）。Fabric `queue_depth` 同样按路由携带的每个资源独立计费，不再有 cube 级 `active` 总量检查。
 
 route构造规则固定为：endpoint编号仍是`channel * axi_interfaces + axi_interface`，用于PAL请求相关和AXI可观测身份；resource编号只由`channel`决定。因此同一Channel的所有AXI endpoint共享该Channel bandwidth，不同Channel可并行。禁止按endpoint创建独享物理resource，否则会把虚拟AXI数量错误乘入物理带宽。
 
@@ -116,7 +116,7 @@ route构造规则固定为：endpoint编号仍是`channel * axi_interfaces + axi
 
 ### Fabric与EAT（`include/openhbx/interconnect/fabric.h`、`src/interconnect/fabric.cpp`）
 
-**职责与设计**：header导出`IInterconnectFabric::try_reserve()`和只读snapshot；source实现route展开、resource排序、checked cycle计算和atomic EAT更新。**关键组件**：`TransferReservation`、`RouteTable`、`EatTable`。**输入输出**：Transfer+now -> Accepted/Busy/Rejected及end cycle。**状态与所有权**：唯一拥有transfer queue和package/vertical resource EAT。**错误边界**：unknown endpoint、零带宽、溢出或部分预约必须零副作用。**依赖**：immutable `FabricProfile`和02 event port。**需求/测试/状态**：PAL-003/006，`VER-PAL-003/006`，`PLANNED`。
+**职责与设计**：header导出`InterconnectFabric::try_reserve()`和只读snapshot；source实现route展开、resource排序、checked cycle计算和atomic EAT更新。**关键组件**：`TransferReservation`、`RouteTable`、`EatTable`。**输入输出**：Transfer+now -> Accepted/Busy/Rejected及end cycle。**状态与所有权**：唯一拥有transfer queue和package/vertical resource EAT。**错误边界**：unknown endpoint、零带宽、溢出或部分预约必须零副作用。**依赖**：immutable `FabricProfile`和02 event port。**需求/测试/状态**：PAL-003/006，`VER-PAL-003/006`，`PLANNED`。
 
 ### Flash PAL（`include/openhbx/pal/flash_pal.h`、`src/pal/flash_pal.cpp`）
 
@@ -170,3 +170,6 @@ route构造规则固定为：endpoint编号仍是`channel * axi_interfaces + axi
 | ADR-06-003 | hybrid bonding为外部profile | OCP未给物理参数 | synthetic默认 | 防止伪称合规 | 首期不比较该技术 | `BLOCKED_SPEC` |
 
 完成定义：全部生产文件接入CMake；PAL-001至006通过规定证据；credit/token/EAT守恒；HBF真实pipeline reset/fault/drain通过；PAL-007只有外部参数与E4基线齐备后才能解除`BLOCKED_SPEC`。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

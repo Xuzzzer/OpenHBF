@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_02_SYSTEM_INTEGRATION_EVENT_KERNEL.md`
 **对应文档完整路径**：`docs/LLD_02_SYSTEM_INTEGRATION_EVENT_KERNEL.md`
-**客观状态**：⚪ `PLANNED`
+**客观状态**：🟡 `PARTIAL`；EventQueue、clock、completion、lifecycle、observability和OpenHbxSystem已有源码及单元测试，Ramulator adapter与端到端证据仍未闭环。
 **适用基线**：OCP HBF v0.7.0；当前 `thirdparty/ramulator2`
 **阶段范围**：仅`OCP_HBF_0_7`生产对象图
 
@@ -135,9 +135,13 @@ Ramulator lifecycle domain                 OpenHBX deterministic domain
 
 **文件**：`include/openhbx/system/open_hbx_system.h`、`src/system/open_hbx_system.cpp`。**职责/关键组件**：唯一facade、对象owner和phase驱动。**输入输出**：canonical request到submit/completion/snapshot。**owner/依赖**：System owner；依赖全部公开port。**需求/状态**：SYS-001/007/008；⚪ `PLANNED`。
 
+> **Channel 分片装配注记（2026-09-20）**：介质装配由单体 `NandFlashDevice` 改为：1 个 `DieDomain` + 每 Channel 一个 `NandChannelSlice`（`owned_banks` 由 04 `ChannelTopology::banks_by_channel` 展开注入）+ 1 个 `NandMediaRouter`（作为 06 的 `IFlashMediaPort`）。HandlerId 分段定义于新头文件 `include/openhbx/system/handler_ids.h`（`kSystemHandlerId=1`、`kPalHandlerId=2`、介质 slice 段 `[1024, 1040)`），取代 `open_hbx_system.cpp` 内 101/102/103 常量（CHAN-008）。系统 reset 逐个调用各 slice 的 `reset()`（各自作用域 discard）；`DieDomain` 无 reset 方法，其 BBT 与 blocked dies 跨 reset 保持，与旧单体设备行为一致（CHAN-005）。详见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) §5.6。
+
 ### 3.4 `EventQueue`
 
 **文件**：`include/openhbx/system/event_queue.h`、`src/system/event_queue.cpp`。**职责/关键组件**：heap、handler registry、phase/sequence排序。**输入输出**：EventSpec到due event。**owner/依赖**：System owner；依赖common event/checked math。**需求/状态**：SYS-002/004；⚪ `PLANNED`。
+
+> **Channel 分片注记（2026-09-20）**：新增 `discard_generation(HandlerId, Generation)` 作用域丢弃：仅移除同时匹配 handler 与 generation 的事件，使单个介质 slice 的 reset 不波及其他 slice（CHAN-007）；队列范围 `discard_generation(Generation)` 保留给系统级 reset，02 为其唯一调用方。
 
 ### 3.5 `CompletionRegistry`
 
@@ -270,3 +274,6 @@ snapshot包含cycle、generation、mode、最早事件、各phase深度、活跃
 [`实验与测试执行规范.md`](实验与测试执行规范.md)。
 
 验收必须使用真实`OpenHbxSystem`对象图形成E3证据；仅adapter object编译或fake pipeline不能证明HBF端到端完成。当前所有项保持`PLANNED`。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

@@ -37,7 +37,8 @@ AdmissionResult FlashPal::try_issue(FlashPhysicalRequest request, Cycle now) {
       (!program && !request.payload.empty()))
     return AdmissionResult::rejected(RejectionReason::InvalidArgument,
                                      "operation payload contract violated");
-  if (contexts_.size() >= config_.max_inflight) return AdmissionResult::busy();
+  if (inflight_by_channel_[request.channel.value()] >= config_.max_inflight)
+    return AdmissionResult::busy();
 
   auto route = fabric_.route_for(request.endpoint);
   if (!route) return AdmissionResult::busy();
@@ -69,6 +70,7 @@ AdmissionResult FlashPal::try_issue(FlashPhysicalRequest request, Cycle now) {
 
   Context context{std::move(request), Stage::ForwardInFlight, next_transfer_id_, *route,
                   reservation.end, 0, 0, PalStatus::InternalError, false, {}};
+  ++inflight_by_channel_[context.request.channel.value()];
   contexts_.emplace(token, std::move(context));
   seen_tokens_.insert(token);
   ++next_transfer_id_;
@@ -129,8 +131,8 @@ void FlashPal::on_event(EventPayload payload) {
 
 void FlashPal::issue_media(Context& context, Cycle now) {
   media::FlashCommand command{context.request.token, context.request.generation,
-                              context.request.kind, context.request.address,
-                              context.request.payload};
+                              context.request.kind, context.request.channel,
+                              context.request.address, context.request.payload};
   const auto result = media_.try_issue_media(std::move(command), now);
   if (result.code == AdmissionCode::Accepted) {
     context.stage = Stage::MediaInFlight;
@@ -270,6 +272,11 @@ void FlashPal::terminal(std::uint64_t token, Cycle now) {
   }
   Context context = std::move(found->second);
   contexts_.erase(found);
+  const auto channel = context.request.channel.value();
+  auto used = inflight_by_channel_.find(channel);
+  if (used != inflight_by_channel_.end() && used->second != 0) {
+    if (--used->second == 0) inflight_by_channel_.erase(used);
+  }
   ++terminal_;
   completion_({context.request.token, context.terminal_status, context.data_valid,
                std::move(context.result_payload), now});
@@ -283,6 +290,7 @@ void FlashPal::reset(Generation next, Cycle now) {
   events_.discard_generation(next);
   std::map<std::uint64_t, Context> aborted;
   aborted.swap(contexts_);
+  inflight_by_channel_.clear();
   for (auto& item : aborted) {
     ++terminal_;
     completion_({item.second.request.token, PalStatus::Aborted, false, {}, now});

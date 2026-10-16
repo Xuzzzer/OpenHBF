@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_04_HBF_ADDRESS_TOPOLOGY.md`
 **对应HLD**：`docs/HLD_04_HBF_ADDRESS_TOPOLOGY.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）
+**设计状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`；尚无本轮合规验证证据）
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史
@@ -20,25 +20,25 @@
 
 | 内容 | 仓库相对目录/完整路径 | 用途 | 状态 |
 |---|---|---|---|
-| 本LLD | `docs/LLD_04_HBF_ADDRESS_TOPOLOGY.md` | 实现、算法和测试契约 | ⚪ `PLANNED` |
-| 对应HLD | `docs/HLD_04_HBF_ADDRESS_TOPOLOGY.md` | 模块边界与需求基线 | ⚪ `PLANNED` |
-| 公开头文件 | `include/openhbx/hbf/address/` | 04公开typed地址与端口 | ⚪ `PLANNED` |
-| 生产实现 | `src/hbf/address/` | geometry、mapper、sequence和zone实现 | ⚪ `PLANNED` |
-| 单元测试 | `tests/unit/hbf/test_address_topology.cpp` | 公式、边界、owner与状态机oracle | ⚪ `PLANNED` |
-| 集成测试 | `tests/integration/hbf/test_sequence_controller.cpp` | 04旁路规则端口与05协作 | ⚪ `PLANNED` |
-| 正式artifact | `build/artifacts/<suite>/<experiment-id>/<run-id>/` | 映射、replay与验证证据；目录须被`.gitignore`覆盖 | ⚪ `PLANNED` |
+| 本LLD | `docs/LLD_04_HBF_ADDRESS_TOPOLOGY.md` | 实现、算法和测试契约 | 🔵 `IMPLEMENTED` |
+| 对应HLD | `docs/HLD_04_HBF_ADDRESS_TOPOLOGY.md` | 模块边界与需求基线 | 🔵 `IMPLEMENTED` |
+| 公开头文件 | `include/openhbx/hbf/address/` | 04公开typed地址与端口 | 🔵 `IMPLEMENTED` |
+| 生产实现 | `src/hbf/address/` | geometry、mapper、sequence和zone实现 | 🔵 `IMPLEMENTED` |
+| 单元测试 | `tests/unit/hbf/test_address_topology.cpp` | 公式、边界、owner与状态机oracle | 🔵 `IMPLEMENTED` |
+| 集成测试 | `tests/integration/hbf/test_sequence_controller.cpp` | 04旁路规则端口与05协作 | 🔵 `IMPLEMENTED` |
+| 正式artifact | `build/artifacts/<suite>/<experiment-id>/<run-id>/` | 映射、replay与验证证据；目录须被`.gitignore`覆盖 | 🔵 `IMPLEMENTED` |
 
-机器状态：`status: PLANNED`。04是05查询/预约的旁路规则协作者，不是`05 -> 06`介质数据路径上的转发节点。
+机器状态：`status: IMPLEMENTED`；测试需按实验规范重新执行。04是05查询/预约的旁路规则协作者，不是`05 -> 06`介质数据路径上的转发节点。
 
 ## 2. 需求到实现映射
 
 | 需求ID | HLD章节 | 文件/符号 | 算法/状态 | Test ID | 状态 |
 |---|---|---|---|---|---|
-| ADDR-001/002/004 | 4.1 | `hbf_geometry.*`、`hbf_address_mapper.*` | checked R1--R5 | ADDR-T01/02/04 | PLANNED |
-| ADDR-003 | 4.2 | `channel_topology.*` | owner table/formula | ADDR-T03 | PLANNED |
-| ADDR-005/006 | 4.3 | `block_sequence.*` | reserve/commit/replay | ADDR-T05/06 | PLANNED |
-| ADDR-007/008 | 4.3 | `zone_map.*` | epoch mapping/capacity | ADDR-T07/08 | PLANNED |
-| ADDR-009 | 1 | `hbf_geometry.*:validate_profile` | forbidden keys | ADDR-T09 | PLANNED |
+| ADDR-001/002/004 | 4.1 | `hbf_geometry.*`、`hbf_address_mapper.*` | checked R1--R5 | ADDR-T01/02/04 | IMPLEMENTED |
+| ADDR-003 | 4.2 | `channel_topology.*` | owner table/formula | ADDR-T03 | IMPLEMENTED |
+| ADDR-005/006 | 4.3 | `block_sequence.*` | reserve/commit/replay | ADDR-T05/06 | IMPLEMENTED |
+| ADDR-007/008 | 4.3 | `zone_map.*` | epoch mapping/capacity | ADDR-T07/08 | IMPLEMENTED |
+| ADDR-009 | 1 | `hbf_geometry.*:validate_profile` | forbidden keys | ADDR-T09 | IMPLEMENTED |
 
 ## 3. 核心类型与数据结构
 
@@ -102,19 +102,19 @@
 
 | 路径 | 动作 | owner | 职责/API | 依赖 | 需求/Test | 状态 |
 |---|---|---|---|---|---|---|
-| `include/openhbx/hbf/address/hbf_address_types.h` | 新增 | 04 | strong units/address/result | common types | ADDR-001 | PLANNED |
-| `include/openhbx/hbf/address/hbf_geometry.h` | 新增 | 04 | immutable geometry | config | ADDR-002/004/009 | PLANNED |
-| `src/hbf/address/hbf_geometry.cpp` | 新增 | 04 | derive/validate | checked math | ADDR-T04/T09 | PLANNED |
-| `include/openhbx/hbf/address/channel_topology.h` | 新增 | 04 | ownership API | geometry | ADDR-003 | PLANNED |
-| `src/hbf/address/channel_topology.cpp` | 新增 | 04 | owner computation | config | ADDR-T03 | PLANNED |
-| `include/openhbx/hbf/address/hbf_address_mapper.h` | 新增 | 04 | map/reverse API | types | ADDR-001/002 | PLANNED |
-| `src/hbf/address/hbf_address_mapper.cpp` | 新增 | 04 | formulas/view | topology | ADDR-T01/02 | PLANNED |
-| `include/openhbx/hbf/address/block_sequence.h` | 新增 | 04 | reservation API | token | ADDR-005/006 | PLANNED |
-| `src/hbf/address/block_sequence.cpp` | 新增 | 04 | state/replay iterator | mapper | ADDR-T05/06 | PLANNED |
-| `include/openhbx/hbf/address/zone_map.h` | 新增 | 04 | remap/retire API | types | ADDR-007/008 | PLANNED |
-| `src/hbf/address/zone_map.cpp` | 新增 | 04 | atomic epoch view | block sequence | ADDR-T07/08 | PLANNED |
-| `tests/unit/hbf/test_address_topology.cpp` | 新增 | test | golden/round-trip/negative | production04 | ADDR-T01..09 | PLANNED |
-| `tests/integration/hbf/test_sequence_controller.cpp` | 新增 | test | 04/05 contract | production04/05 | ADDR-T05..08 | PLANNED |
+| `include/openhbx/hbf/address/hbf_address_types.h` | 新增 | 04 | strong units/address/result | common types | ADDR-001 | IMPLEMENTED |
+| `include/openhbx/hbf/address/hbf_geometry.h` | 新增 | 04 | immutable geometry | config | ADDR-002/004/009 | IMPLEMENTED |
+| `src/hbf/address/hbf_geometry.cpp` | 新增 | 04 | derive/validate | checked math | ADDR-T04/T09 | IMPLEMENTED |
+| `include/openhbx/hbf/address/channel_topology.h` | 新增 | 04 | ownership API | geometry | ADDR-003 | IMPLEMENTED |
+| `src/hbf/address/channel_topology.cpp` | 新增 | 04 | owner computation | config | ADDR-T03 | IMPLEMENTED |
+| `include/openhbx/hbf/address/hbf_address_mapper.h` | 新增 | 04 | map/reverse API | types | ADDR-001/002 | IMPLEMENTED |
+| `src/hbf/address/hbf_address_mapper.cpp` | 新增 | 04 | formulas/view | topology | ADDR-T01/02 | IMPLEMENTED |
+| `include/openhbx/hbf/address/block_sequence.h` | 新增 | 04 | reservation API | token | ADDR-005/006 | IMPLEMENTED |
+| `src/hbf/address/block_sequence.cpp` | 新增 | 04 | state/replay iterator | mapper | ADDR-T05/06 | IMPLEMENTED |
+| `include/openhbx/hbf/address/zone_map.h` | 新增 | 04 | remap/retire API | types | ADDR-007/008 | IMPLEMENTED |
+| `src/hbf/address/zone_map.cpp` | 新增 | 04 | atomic epoch view | block sequence | ADDR-T07/08 | IMPLEMENTED |
+| `tests/unit/hbf/test_address_topology.cpp` | 新增 | test | golden/round-trip/negative | production04 | ADDR-T01..09 | IMPLEMENTED |
+| `tests/integration/hbf/test_sequence_controller.cpp` | 新增 | test | 04/05 contract | production04/05 | ADDR-T05..08 | IMPLEMENTED |
 
 ### 7.2 生产文件解析
 
@@ -183,9 +183,9 @@
 
 | ADR ID | 决策 | 备选 | 理由 | 代价 | 状态 |
 |---|---|---|---|---|---|
-| ADR-ADDR-001 | 单位强类型+checked arithmetic | 裸u64 | 防止A1重复位移和overflow | 转换代码增加 | PLANNED |
-| ADR-ADDR-002 | Channel为Bank容量切片 | 每Channel复制物理树 | 符合产品拓扑 | owner校验必需 | PLANNED |
-| ADR-ADDR-003 | sequence保留在地址域 | 全放Controller | replay地址视图单一owner | 04含少量动态规则状态 | PLANNED |
-| ADR-ADDR-004 | Zone Remap只交换view | media copy | 符合OCP Host重写 | Host需显式重放 | PLANNED |
+| ADR-ADDR-001 | 单位强类型+checked arithmetic | 裸u64 | 防止A1重复位移和overflow | 转换代码增加 | IMPLEMENTED |
+| ADR-ADDR-002 | Channel为Bank容量切片 | 每Channel复制物理树 | 符合产品拓扑 | owner校验必需 | IMPLEMENTED |
+| ADR-ADDR-003 | sequence保留在地址域 | 全放Controller | replay地址视图单一owner | 04含少量动态规则状态 | IMPLEMENTED |
+| ADR-ADDR-004 | Zone Remap只交换view | media copy | 符合OCP Host重写 | Host需显式重放 | IMPLEMENTED |
 
 完成定义：全部文件/API落地；ADDR-001..009有自动oracle；map/reverse、sequence/replay、zone无copy及reset/stale达到E1/E2；真实Host->Media系统E3前不得宣称端到端验证；所有状态维持PLANNED直至符合实验规范的证据更新。

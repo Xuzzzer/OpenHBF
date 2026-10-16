@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_04_HBF_ADDRESS_TOPOLOGY.md`
 **对应文档**：`docs/LLD_04_HBF_ADDRESS_TOPOLOGY.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）
+**设计状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`；尚无本轮合规验证证据）
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史
@@ -24,15 +24,15 @@
 
 | 需求ID | 需求描述 | 优先级 | 版本 | 实现状态 |
 |---|---|---|---|---|
-| ADDR-001 | A1按64 B单位解析且DLU sector为0--63 | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-002 | 实现L1/B1/P1/Bank_Num/L2及R1--R5公式 | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-003 | Channel只能访问owner Bank容量切片 | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-004 | geometry与反向映射使用checked arithmetic | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-005 | 同block page顺序reserve/complete，page0产生auto-erase意图 | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-006 | failure进入replay gate并生成`L2+n*R5` | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-007 | Zone Remap只改变view并要求Host重写 | P0 | V1.0 | ⚪ `PLANNED` |
-| ADDR-008 | retirement/reduced capacity使地址不可用 | P1 | V1.0 | ⚪ `PLANNED` |
-| ADDR-009 | 正式profile拒绝L2P、GC和active relocation | P0 | V1.0 | ⚪ `PLANNED` |
+| ADDR-001 | A1按64 B单位解析且DLU sector为0--63 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-002 | 实现L1/B1/P1/Bank_Num/L2及R1--R5公式 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-003 | Channel只能访问owner Bank容量切片 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-004 | geometry与反向映射使用checked arithmetic | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-005 | 同block page顺序reserve/complete，page0产生auto-erase意图 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-006 | failure进入replay gate并生成`L2+n*R5` | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-007 | Zone Remap只改变view并要求Host重写 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-008 | retirement/reduced capacity使地址不可用 | P1 | V1.0 | 🔵 `IMPLEMENTED` |
+| ADDR-009 | 正式profile拒绝L2P、GC和active relocation | P0 | V1.0 | 🔵 `IMPLEMENTED` |
 
 | 需求ID | 来源/证据类别 | owner组件 | Test ID |
 |---|---|---|---|
@@ -74,7 +74,7 @@
 **状态所有权**：04在产品生命周期唯一拥有，构造后只读。  
 **依赖边界**：只依赖00配置，不读取请求或介质状态。  
 **对应需求**：ADDR-002/004/009。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.2 ChannelTopology
 
@@ -86,7 +86,9 @@
 **状态所有权**：04拥有immutable owner表。  
 **依赖边界**：依赖Geometry/profile，不依赖Controller或Media。  
 **对应需求**：ADDR-003。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
+
+> **Channel 分片注记（2026-09-20）**：`ChannelTopology::banks_by_channel` 是 02 装配期构建各 `NandChannelSlice::owned_banks` 的唯一来源；07 不复制 owner 表，slice 的成员资格校验即 ownership 硬校验（ADR-CHAN-004）。`ChannelId` 强类型定义上移至 `openhbx/common/strong_types.h`，本模块以别名保持源码兼容（ADR-CHAN-006）。
 
 ### 3.3 HbfAddressMapper
 
@@ -98,7 +100,7 @@
 **状态所有权**：无per-request状态。  
 **依赖边界**：依赖Geometry、Topology和Zone snapshot；不访问05/06/07动态状态。  
 **对应需求**：ADDR-001/002/003/007。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.4 BlockSequence
 
@@ -110,7 +112,7 @@
 **状态所有权**：04唯一拥有per-block规则状态。  
 **依赖边界**：依赖Mapper和02 token；05仅通过旁路端口查询/预约。  
 **对应需求**：ADDR-005/006。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.5 ZoneMap
 
@@ -122,7 +124,7 @@
 **状态所有权**：04唯一拥有mapping view。  
 **依赖边界**：依赖BlockSequence冲突查询；不得调用06或搬移07 payload。  
 **对应需求**：ADDR-007/008。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ## 4. 高层详细设计
 

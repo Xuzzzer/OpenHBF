@@ -3,6 +3,7 @@
 #include <limits>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace openhbx::hbf::controller {
 namespace {
@@ -174,7 +175,9 @@ AdmissionResult BaseDieFlashController::submit_read(ControllerRequest request,
   if (!cache) {
     return AdmissionResult::busy();
   }
-  if (ecc_inflight_ >= ecc_.credits()) {
+  const auto channel = request.dlu.block.channel.value();
+  auto& ecc_used = ecc_inflight_by_channel_[channel];
+  if (ecc_used >= ecc_.credits()) {
     cache_.release(*cache);
     return AdmissionResult::busy();
   }
@@ -189,7 +192,7 @@ AdmissionResult BaseDieFlashController::submit_read(ControllerRequest request,
     cache_.release(*cache);
     return AdmissionResult::busy();
   }
-  ++ecc_inflight_;
+  ++ecc_used;
   ++accepted_;
   drive_scheduler(now);
   return AdmissionResult::accepted();
@@ -208,6 +211,11 @@ bool BaseDieFlashController::enqueue(BackendRecord record, WorkKind kind) {
 
 // 从调度队列选择工作并提交给 PAL，处理 Accepted、Busy 和 Rejected 三种结果。
 void BaseDieFlashController::drive_scheduler(Cycle now) {
+  // PAL Busy means THIS channel's PAL slice is full. Defer the work and keep
+  // draining other banks so a busy channel never head-of-line blocks other
+  // channels (OCP per-channel subsystem alignment). The deferred bank stays
+  // marked active during this pass, so select() cannot pick it again.
+  std::vector<FlashWork> deferred;
   while (auto work = scheduler_.select()) {
     auto found = ready_.find(work->token.value());
     if (found == ready_.end()) {
@@ -226,6 +234,7 @@ void BaseDieFlashController::drive_scheduler(Cycle now) {
       payload = record.program_payload;
     }
     const auto admission = pal_.try_issue({pal_token, generation_, kind,
+                                            record.request.dlu.block.channel,
                                             physical_address(record.request),
                                             record.request.endpoint, payload},
                                            now);
@@ -234,12 +243,12 @@ void BaseDieFlashController::drive_scheduler(Cycle now) {
       ready_.erase(found);
       continue;
     }
-    scheduler_.complete(work->bank);
     if (admission.code == AdmissionCode::Busy) {
-      scheduler_.enqueue(*work);
-      break;
+      deferred.push_back(*work);
+      continue;
     }
 
+    scheduler_.complete(work->bank);
     auto failed = std::move(record);
     ready_.erase(found);
     if (failed.reservation) {
@@ -247,9 +256,7 @@ void BaseDieFlashController::drive_scheduler(Cycle now) {
     }
     if (failed.cache) {
       cache_.release(*failed.cache);
-      if (ecc_inflight_ != 0) {
-        --ecc_inflight_;
-      }
+      release_ecc_credit(failed.request.dlu.block.channel);
     }
     if (!failed.host_tokens.empty()) {
       for (auto token : failed.host_tokens) {
@@ -260,6 +267,10 @@ void BaseDieFlashController::drive_scheduler(Cycle now) {
       terminal(failed.request.token, ControllerStatus::UnsupportedSpecGap,
                false, {}, now);
     }
+  }
+  for (auto& work : deferred) {
+    scheduler_.complete(work.bank);
+    scheduler_.enqueue(std::move(work));
   }
 }
 
@@ -283,9 +294,7 @@ void BaseDieFlashController::pump(Cycle now) {
     }
     if (record.cache) {
       cache_.release(*record.cache);
-      if (ecc_inflight_ != 0) {
-        --ecc_inflight_;
-      }
+      release_ecc_credit(record.request.dlu.block.channel);
     }
     if (!record.host_tokens.empty()) {
       for (auto token : record.host_tokens) {
@@ -361,9 +370,7 @@ void BaseDieFlashController::on_pal_completion(pal::PalCompletion completion) {
   }
 
   const auto decoded = ecc_.decode(completion);
-  if (ecc_inflight_ != 0) {
-    --ecc_inflight_;
-  }
+  release_ecc_credit(record.request.dlu.block.channel);
   if (record.cache) {
     if (decoded.data_valid) {
       cache_.fill(*record.cache, decoded.payload);
@@ -437,7 +444,7 @@ void BaseDieFlashController::reset(Generation next, Cycle now) {
   accumulator_.reset();
   scheduler_.reset();
   cache_.reset();
-  ecc_inflight_ = 0;
+  ecc_inflight_by_channel_.clear();
   control_.reset(true);
   pal_.reset(next, now);
   generation_ = next;
@@ -450,6 +457,13 @@ void BaseDieFlashController::terminal(Token token, ControllerStatus status, bool
   ++terminal_;
   completion_({token, generation_, status, valid,
                valid ? std::move(payload) : PayloadHandle{}, now, info});
+}
+
+// 归还一个 channel 的 ECC decode credit（读完成/取消/拒绝时调用）。
+void BaseDieFlashController::release_ecc_credit(address::ChannelId channel) {
+  auto used = ecc_inflight_by_channel_.find(channel.value());
+  if (used == ecc_inflight_by_channel_.end() || used->second == 0) return;
+  if (--used->second == 0) ecc_inflight_by_channel_.erase(used);
 }
 
 // 将地址顺序错误转换为控制器对 Host 暴露的状态码。

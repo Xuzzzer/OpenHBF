@@ -2,3 +2,8 @@ add_executable(openhbx_media_component_test test_media_component.cpp)
 target_link_libraries(openhbx_media_component_test PRIVATE openhbx_media_nand openhbx_warnings)
 add_test(NAME openhbx_media_component_test COMMAND openhbx_media_component_test)
 set_tests_properties(openhbx_media_component_test PROPERTIES LABELS "openhbx_s3;openhbx_media;VER-MEDIA-002;VER-MEDIA-003;VER-MEDIA-004;VER-MEDIA-007")
+
+add_executable(openhbx_channel_partition_test test_channel_partition.cpp)
+target_link_libraries(openhbx_channel_partition_test PRIVATE openhbx_media_nand openhbx_warnings)
+add_test(NAME openhbx_channel_partition_test COMMAND openhbx_channel_partition_test)
+set_tests_properties(openhbx_channel_partition_test PROPERTIES LABELS "openhbx_s3;openhbx_media;CHAN-T06;CHAN-T07;CHAN-T09;CHAN-T11;CHAN-T12")

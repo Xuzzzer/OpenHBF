@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_01_HBF_PRODUCT_CONFIGURATION.md`
 **对应文档完整路径**：`docs/LLD_01_HBF_PRODUCT_CONFIGURATION.md`
-**客观状态**：⚪ `PLANNED`；规范字段提取项为🔴 `BLOCKED_SPEC`
+**客观状态**：🟡 `PARTIAL`；配置解析、profile、resolved config、能力闭包、registry和composer已有生产实现，完整系统装配证据仍待补齐。规范字段提取项为🔴 `BLOCKED_SPEC`
 **适用基线**：OCP HBF v0.7.0；当前 `thirdparty/ramulator2`
 **阶段范围**：仅 `OCP_HBF_0_7` profile
 

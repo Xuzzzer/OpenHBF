@@ -18,6 +18,10 @@ struct FlashPhysicalRequest {
   Token token;
   Generation generation;
   media::CommandKind kind{media::CommandKind::Read};
+  // Owning Host Channel, carried explicitly from 05's HbfAddress (CHAN-002);
+  // forwarded verbatim into FlashCommand.channel. `endpoint` below remains
+  // the fabric routing key only.
+  ChannelId channel{};
   media::PhysicalAddress address;
   std::uint64_t endpoint{0};
   PayloadHandle payload;
@@ -60,6 +64,10 @@ struct PalCompletion {
 using PalCompletionSink = std::function<void(PalCompletion)>;
 
 struct FlashPalConfig {
+  // OCP per-channel subsystem alignment: in-flight budget of ONE Host
+  // Channel's PAL slice, not a cube-global pool (mirrors media_max_inflight's
+  // per-slice semantics, CHAN-010). Cube-wide in-flight = max_inflight x
+  // host_channels.
   std::size_t max_inflight{0};
   std::uint64_t media_retry_budget{0};
   std::uint64_t return_retry_budget{0};
@@ -119,6 +127,9 @@ class FlashPal {
   PalCompletionSink completion_;
   Generation generation_{0};
   std::map<std::uint64_t, Context> contexts_;
+  // Per-channel in-flight accounting (keyed by ChannelId value). Channels
+  // never share their PAL transfer budget.
+  std::map<std::uint64_t, std::size_t> inflight_by_channel_;
   std::set<std::uint64_t> seen_tokens_;
   std::uint64_t next_transfer_id_{1};
   std::uint64_t accepted_{0}, terminal_{0}, media_retries_{0};

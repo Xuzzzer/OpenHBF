@@ -1,5 +1,6 @@
 #include "openhbx/system/observability.h"
 
+#include <iostream>
 #include <sstream>
 
 namespace openhbx {
@@ -110,6 +111,22 @@ std::string render_event_jsonl(const ObservedEvent& event) {
   if (event.resource_id != 0) out << ",\"resource_id\":" << event.resource_id;
   out << '}';
   return out.str();
+}
+
+std::string render_event_console(const ObservedEvent& event) {
+  std::ostringstream out;
+  out << '[' << event.module << "] [" << to_string(event.level) << "] cycle="
+      << event.cycle.value() << " phase=" << to_string(event.phase)
+      << " op=" << event.operation << " stage=" << event.stage
+      << " result=" << event.result;
+  if (event.token.value() != 0) out << " token=" << event.token.value();
+  if (event.resource_id != 0) out << " resource_id=" << event.resource_id;
+  if (event.has_sequence) out << " seq=" << event.sequence;
+  return out.str();
+}
+
+void console_log(const ObservedEvent& event) {
+  std::clog << render_event_console(event) << '\n';
 }
 
 }  // namespace openhbx

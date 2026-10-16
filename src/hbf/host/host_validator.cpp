@@ -25,10 +25,9 @@ ValidationResult HostValidator::validate(const HostIngress& request) const noexc
       request.address_bytes + request.size_bytes > axi_capacity)
     return {HostError::OutOfRange};
   if (request.packet_type == PacketType::FlashIo) {
-    if (request.operation == HostOperation::Write && request.size_bytes != 64)
-      return {HostError::InvalidSize};
     if (request.operation == HostOperation::Admin) return {HostError::InvalidLifecycle};
-    if (request.operation == HostOperation::Write && request.payload.size() != 64)
+    if (request.operation == HostOperation::Write &&
+        request.payload.size() != request.size_bytes)
       return {HostError::InvalidPayload};
     if (request.operation == HostOperation::Read && !request.payload.empty())
       return {HostError::InvalidPayload};

@@ -72,13 +72,15 @@ JSONL示例：
 
 | 级别 | 用途 | 默认行为 |
 |---|---|---|
-| Error | callback异常、不可恢复完整性错误 | 收集 |
-| Warn | rejected、stale、event丢弃、可恢复异常 | 收集 |
-| Info | run/reset/drain摘要 | 默认暂未逐项接入 |
-| Debug | 请求阶段和资源选择 | 显式开启 |
-| Trace | 每次schedule/dispatch | 显式开启 |
+| Error | callback异常、不可恢复完整性错误 | 收集并打印 |
+| Warn | rejected、stale、event丢弃、可恢复异常 | 收集并打印 |
+| Info | compose/reset摘要 | 收集，显式开启后打印 |
+| Debug | 请求准入Busy/Rejected、响应staged、link_init | 显式开启 |
+| Trace | 每次schedule/dispatch（EventQueue自动发布） | 显式开启 |
 
-`EventJournal`默认容量256、最低级别`Warn`。容量满后不覆盖首批witness，而是丢弃新事件并增加`dropped`；sink异常增加`sink_errors`并被隔离。生产库不自动创建文件。正式实验由08层把渲染结果写到：
+`EventJournal`默认容量256、最低级别`Warn`。容量满后不覆盖首批witness，而是丢弃新事件并增加`dropped`；sink异常增加`sink_errors`并被隔离。
+
+**默认控制台 sink（2026-10-15 接入）**：`OpenHbxSystem` 构造时默认安装 `console_log`——ramulator 风格的单行渲染（`[module] [level] cycle=N phase=... op=... stage=... result=... [token=N]`）写 `std::clog`，与既有运行时 level 过滤叠加（默认 Warn，即默认只打印 Warn/Error）。`set_log_level` 运行时调整；`set_log_sink({})` 关闭打印；`set_log_sink(自定义)` 替换为 JSONL/文件 sink。trace runner 提供 `OPENHBX_LOG_LEVEL=error|warn|info|debug|trace|off` 环境变量开关。生产库不自动创建文件。正式实验由08层把渲染结果写到：
 
 ```text
 build/artifacts/<suite>/<experiment-id>/<run-id>/event-window.jsonl
@@ -91,11 +93,11 @@ build/artifacts/<suite>/<experiment-id>/<run-id>/event-window.jsonl
 | 文件 | 修改内容 |
 |---|---|
 | `include/openhbx/system/observability.h` | schema、observer、journal、sink和snapshot公开契约 |
-| `src/system/observability.cpp` | level过滤、bounded ring、drop计数、文本/JSONL确定性渲染 |
+| `src/system/observability.cpp` | level过滤、bounded ring、drop计数、文本/JSONL/控制台确定性渲染、`console_log`默认sink |
 | `include/openhbx/system/event_queue.h` | 接受非拥有型`EventObserver` |
 | `src/system/event_queue.cpp` | 从真实schedule/dispatch边界发布事件 |
 | `include/openhbx/system/open_hbx_system.h` | 拥有journal并提供只读snapshot/sink配置 |
-| `src/system/open_hbx_system.cpp` | 连接EventQueue并记录callback exception |
+| `src/system/open_hbx_system.cpp` | 连接EventQueue；构造时装默认控制台sink；compose/link_init/reset/admission/respond/callback exception插桩 |
 | `tests/unit/system/test_event_kernel.cpp` | 检查字段、顺序、过滤、drop和两种renderer |
 
 生命周期：

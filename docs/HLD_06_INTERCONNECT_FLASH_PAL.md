@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_06_INTERCONNECT_FLASH_PAL.md`
 **对应文档**：`docs/LLD_06_INTERCONNECT_FLASH_PAL.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）；hybrid bonding依赖🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
+**设计状态**：🟡 `PARTIAL`（`status: PARTIAL`）；hybrid bonding依赖🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史
@@ -55,7 +55,8 @@
        |                                              |
        +---------------- system EventQueue <----------+
                                                       |
-                                         07 NandFlashDevice
+                                         07 NandMediaRouter
+                                          -> N x NandChannelSlice
 ```
 
 | 组件 | 主要文件 | 职责 | 输入 | 输出 | 拥有状态 | 依赖 |
@@ -78,6 +79,8 @@
 **依赖边界**：依赖02、Fabric与07窄端口；不拥有04或07状态。  
 **对应需求**：PAL-001/002/005。  
 **实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+
+> **Channel 分片注记（2026-09-20）**：`FlashPhysicalRequest` 新增强类型 `channel` 字段（05 从 `HbfAddress` 直接携带），`FlashPal::issue_media` 透传至 `FlashCommand.channel`，不再在 PAL→Media 边界丢弃 channel 维度（CHAN-002）。`IFlashMediaPort` 的实现者由单体设备改为 07 的 `NandMediaRouter`（ADR-CHAN-003），06 接口签名不变。见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) §5.2/§5.5。
 
 ### 3.2 InterconnectFabric
 
@@ -165,6 +168,8 @@ Any nonterminal --reset--> Aborted；旧event -> StaleDiscarded
 
 队列深度、每Channel lane/spare数、每lane bits/cycle、可选校准效率、arbitration/propagation cycle均来自resolved profile。最大吞吐基线必须使用100% raw link能力，不得预置OCP用户带宽比例；协议开销应由显式传输字段和调度自然产生。双工按独立resource group计算；测量不得使用宿主wall-clock。空间复杂度为`O(inflight + channels * lanes + resources + routes)`。
 
+预算归属按 OCP per-channel 子系统对齐（ADR-CHAN-009，2026-10-15）：Fabric `queue_depth` 按路由携带的资源计费（生产装配中一条路由恰好携带一个 Channel 路径资源），PAL `max_inflight` 按 channel 计费（cube 总在途 = 该值 × `host_channels`）；任一 channel 预算耗尽可能返回 Busy，但不得消耗其他 channel 的同名预算（CHAN-I7，测试 CHAN-T13/T14）。
+
 ## 9. 错误、恢复与可观测性
 
 公开错误包括`InvalidRequest`、`NoCredit`、`PathUnavailable`、`TransferOverflow`、`MediaRejected`、`MediaFailure`、`Aborted`和`IntegrityError`。trace至少记录token、generation、route、repair epoch、resource、start/end cycle、stage和status；snapshot包含queue、EAT、active/spare map及inflight owner。统计包括transfer bits/cycles、queue high-watermark、TSV利用率、repair/degraded次数、stale/duplicate事件和retry次数。
@@ -181,3 +186,6 @@ Any nonterminal --reset--> Aborted；旧event -> StaleDiscarded
 | `VER-PAL-006` | E4 | real fabric | 饱和流量 | 吞吐不越理论上限 | E4 |
 
 实验执行、证据保存和状态更新统一遵循[`实验与测试执行规范.md`](实验与测试执行规范.md)。文档与文件落地不构成实现或验证证据。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

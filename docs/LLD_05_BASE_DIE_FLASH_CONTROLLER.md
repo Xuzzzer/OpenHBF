@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_05_BASE_DIE_FLASH_CONTROLLER.md`
 **对应HLD**：`docs/HLD_05_BASE_DIE_FLASH_CONTROLLER.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）；外部参数🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
+**设计状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`；尚无本轮合规验证证据）；外部参数🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史
@@ -20,28 +20,28 @@
 
 | 内容 | 仓库相对目录/完整路径 | 用途 | 状态 |
 |---|---|---|---|
-| 本LLD | `docs/LLD_05_BASE_DIE_FLASH_CONTROLLER.md` | Controller实现与验收契约 | ⚪ `PLANNED` |
-| 对应HLD | `docs/HLD_05_BASE_DIE_FLASH_CONTROLLER.md` | Controller边界与需求基线 | ⚪ `PLANNED` |
-| 公开/内部头 | `include/openhbx/hbf/controller/` | Facade、PAL端口与子组件类型 | ⚪ `PLANNED` |
-| 生产实现 | `src/hbf/controller/` | accumulator、scheduler、cache、ECC和control plane | ⚪ `PLANNED` |
-| 组件测试 | `tests/unit/hbf/test_flash_controller_components.cpp` | 05子组件自动oracle | ⚪ `PLANNED` |
-| 集成测试 | `tests/integration/hbf/test_base_die_pal_path.cpp` | `03 -> 05（查询/预约04） -> 06 -> 07` | ⚪ `PLANNED` |
-| 正式artifact | `build/artifacts/<suite>/<experiment-id>/<run-id>/` | Controller trace、snapshot与验证证据；目录须被`.gitignore`覆盖 | ⚪ `PLANNED` |
+| 本LLD | `docs/LLD_05_BASE_DIE_FLASH_CONTROLLER.md` | Controller实现与验收契约 | 🔵 `IMPLEMENTED` |
+| 对应HLD | `docs/HLD_05_BASE_DIE_FLASH_CONTROLLER.md` | Controller边界与需求基线 | 🔵 `IMPLEMENTED` |
+| 公开/内部头 | `include/openhbx/hbf/controller/` | Facade、PAL端口与子组件类型 | 🔵 `IMPLEMENTED` |
+| 生产实现 | `src/hbf/controller/` | accumulator、scheduler、cache、ECC和control plane | 🔵 `IMPLEMENTED` |
+| 组件测试 | `tests/unit/hbf/test_flash_controller_components.cpp` | 05子组件自动oracle | 🔵 `IMPLEMENTED` |
+| 集成测试 | `tests/integration/hbf/test_base_die_pal_path.cpp` | `03 -> 05（查询/预约04） -> 06 -> 07` | 🔵 `IMPLEMENTED` |
+| 正式artifact | `build/artifacts/<suite>/<experiment-id>/<run-id>/` | Controller trace、snapshot与验证证据；目录须被`.gitignore`覆盖 | 🔵 `IMPLEMENTED` |
 
-机器状态：`status: PLANNED`；`dependency_status: BLOCKED_SPEC`仅用于未来源化vendor参数。
+机器状态：`status: IMPLEMENTED`；测试需按实验规范重新执行；`dependency_status: BLOCKED_SPEC`仅用于未来源化vendor参数。
 
 ## 2. 需求到实现映射
 
 | 需求ID | HLD章节 | 文件/符号 | 算法/状态 | Test ID | 状态 |
 |---|---|---|---|---|---|
-| CTRL-001/002 | 4.1 | `dlu_accumulator.*` | mask/deadline/bounded map | CTRL-T01/02 | PLANNED |
-| CTRL-003/004 | 4.1 | `base_die_flash_controller.*` | reservation/PAL terminal | CTRL-T03/04 | PLANNED |
-| CTRL-005 | 4.2 | `dlu_accumulator.*:probe_read` | forward/pending missing | CTRL-T05 | PLANNED |
-| CTRL-006 | 4.2 | `flash_scheduler.*` | per-bank sense/batch | CTRL-T06 | PLANNED |
-| CTRL-007 | 4.2 | `bank_cache_manager.*` | >=2 buffer credit | CTRL-T07 | PLANNED |
-| CTRL-008 | 4.2 | `ecc_pipeline.*` | typed data-valid/retry | CTRL-T08 | PLANNED |
-| CTRL-009 | 4.3 | `control_plane.*` | typed admin/lifecycle | CTRL-T09 | PLANNED |
-| CTRL-010 | 1/5 | `flash_pal_port.h` | only backend | CTRL-T10 | PLANNED |
+| CTRL-001/002 | 4.1 | `dlu_accumulator.*` | mask/deadline/bounded map | CTRL-T01/02 | IMPLEMENTED |
+| CTRL-003/004 | 4.1 | `base_die_flash_controller.*` | reservation/PAL terminal | CTRL-T03/04 | IMPLEMENTED |
+| CTRL-005 | 4.2 | `dlu_accumulator.*:probe_read` | forward/pending missing | CTRL-T05 | IMPLEMENTED |
+| CTRL-006 | 4.2 | `flash_scheduler.*` | per-bank sense/batch | CTRL-T06 | IMPLEMENTED |
+| CTRL-007 | 4.2 | `bank_cache_manager.*` | >=2 buffer credit | CTRL-T07 | IMPLEMENTED |
+| CTRL-008 | 4.2 | `ecc_pipeline.*` | typed data-valid/retry | CTRL-T08 | IMPLEMENTED |
+| CTRL-009 | 4.3 | `control_plane.*` | typed admin/lifecycle | CTRL-T09 | IMPLEMENTED |
+| CTRL-010 | 1/5 | `flash_pal_port.h` | only backend | CTRL-T10 | IMPLEMENTED |
 | CTRL-011 | 8 | config validator | source tag | CTRL-T11 | BLOCKED_SPEC |
 
 ## 3. 核心类型与数据结构
@@ -61,6 +61,8 @@
 `AccumulatorResult={Accepted,Complete(DluHandle),Overlap,Limit,Timeout}`；`ReadProbe={Forward(payload),PendingMissing,Miss}`；`FlashPalCommand`为`Read/Program/Erase/Reset` tagged variant且携带04 typed address/reservation token。
 
 容量为`pending<=max_pending_dlu`、`cache_buffers_per_bank>=2`、`controller_records<=queue credits`、`pal_outstanding<=pal credits`。
+
+per-channel 语义（CHAN-013，ADR-CHAN-009，2026-10-15）：`max_pending_dlu` 与 ECC decode credits 均为**每 channel** 预算（实现为 `pending_by_channel_` / `ecc_inflight_by_channel_` 映射），一个 channel 的写聚合/读突发不得耗尽其他 channel 的同名预算；`queue_depth` 维持 per-Bank 语义（Bank 唯一归属 channel，天然隔离）。PAL Busy 时调度器不再停止本趟排空（队头阻塞），改为把该 work 延迟到本趟结束后重新入队（deferred requeue），Busy channel 不阻塞其他 channel 的就绪工作。
 
 ## 4. 头文件与公开边界
 
@@ -115,22 +117,22 @@ reset顺序：关闭admission -> generation++ -> cancel未issue -> 标记infligh
 
 | 路径 | 动作 | owner | 职责/API | 依赖 | 需求/Test | 状态 |
 |---|---|---|---|---|---|---|
-| `include/openhbx/hbf/controller/controller_types.h` | 新增 | 05 | typed work/result | 03/04 common | 全部 | PLANNED |
-| `include/openhbx/hbf/controller/base_die_flash_controller.h` | 新增 | 05 | 公开facade | public ports | CTRL-003/004 | PLANNED |
-| `src/hbf/controller/base_die_flash_controller.cpp` | 新增 | 05 | route/state/completion | 子组件 | CTRL-T03/04 | PLANNED |
-| `include/openhbx/hbf/controller/flash_pal_port.h` | 新增 | 05/06契约 | PAL typed port | common token | CTRL-010 | PLANNED |
-| `include/openhbx/hbf/controller/dlu_accumulator.h` | 新增 | 05 | accumulator API | event kernel | CTRL-001/002/005 | PLANNED |
-| `src/hbf/controller/dlu_accumulator.cpp` | 新增 | 05 | mask/timeout/forward | payload store | CTRL-T01/02/05 | PLANNED |
-| `include/openhbx/hbf/controller/flash_scheduler.h` | 新增 | 05 | scheduler API | PAL capability | CTRL-006 | PLANNED |
-| `src/hbf/controller/flash_scheduler.cpp` | 新增 | 05 | deterministic arbitration | cache/PAL | CTRL-T06 | PLANNED |
-| `include/openhbx/hbf/controller/bank_cache_manager.h` | 新增 | 05 | buffer credit API | address types | CTRL-007 | PLANNED |
-| `src/hbf/controller/bank_cache_manager.cpp` | 新增 | 05 | cache state/data refs | payload | CTRL-T07 | PLANNED |
-| `include/openhbx/hbf/controller/ecc_pipeline.h` | 新增 | 05 | encode/decode port | RAS config | CTRL-008 | PLANNED |
-| `src/hbf/controller/ecc_pipeline.cpp` | 新增 | 05 | stage/status | kernel | CTRL-T08 | PLANNED |
-| `include/openhbx/hbf/controller/control_plane.h` | 新增 | 05 | Admin/Scratchpad/lifecycle | 03/04 ports | CTRL-009 | PLANNED |
-| `src/hbf/controller/control_plane.cpp` | 新增 | 05 | opcode/reset dispatch | profile | CTRL-T09 | PLANNED |
-| `tests/unit/hbf/test_flash_controller_components.cpp` | 新增 | test | accumulator/cache/ECC/scheduler | production05 | CTRL-T01/02/05..08 | PLANNED |
-| `tests/integration/hbf/test_base_die_pal_path.cpp` | 新增 | test | 03/04/05/06 contract | production path | CTRL-T03/04/09/10 | PLANNED |
+| `include/openhbx/hbf/controller/controller_types.h` | 新增 | 05 | typed work/result | 03/04 common | 全部 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/base_die_flash_controller.h` | 新增 | 05 | 公开facade | public ports | CTRL-003/004 | IMPLEMENTED |
+| `src/hbf/controller/base_die_flash_controller.cpp` | 新增 | 05 | route/state/completion | 子组件 | CTRL-T03/04 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/flash_pal_port.h` | 新增 | 05/06契约 | PAL typed port | common token | CTRL-010 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/dlu_accumulator.h` | 新增 | 05 | accumulator API | event kernel | CTRL-001/002/005 | IMPLEMENTED |
+| `src/hbf/controller/dlu_accumulator.cpp` | 新增 | 05 | mask/timeout/forward | payload store | CTRL-T01/02/05 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/flash_scheduler.h` | 新增 | 05 | scheduler API | PAL capability | CTRL-006 | IMPLEMENTED |
+| `src/hbf/controller/flash_scheduler.cpp` | 新增 | 05 | deterministic arbitration | cache/PAL | CTRL-T06 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/bank_cache_manager.h` | 新增 | 05 | buffer credit API | address types | CTRL-007 | IMPLEMENTED |
+| `src/hbf/controller/bank_cache_manager.cpp` | 新增 | 05 | cache state/data refs | payload | CTRL-T07 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/ecc_pipeline.h` | 新增 | 05 | encode/decode port | RAS config | CTRL-008 | IMPLEMENTED |
+| `src/hbf/controller/ecc_pipeline.cpp` | 新增 | 05 | stage/status | kernel | CTRL-T08 | IMPLEMENTED |
+| `include/openhbx/hbf/controller/control_plane.h` | 新增 | 05 | Admin/Scratchpad/lifecycle | 03/04 ports | CTRL-009 | IMPLEMENTED |
+| `src/hbf/controller/control_plane.cpp` | 新增 | 05 | opcode/reset dispatch | profile | CTRL-T09 | IMPLEMENTED |
+| `tests/unit/hbf/test_flash_controller_components.cpp` | 新增 | test | accumulator/cache/ECC/scheduler | production05 | CTRL-T01/02/05..08 | IMPLEMENTED |
+| `tests/integration/hbf/test_base_die_pal_path.cpp` | 新增 | test | 03/04/05/06 contract | production path | CTRL-T03/04/09/10 | IMPLEMENTED |
 
 ### 7.2 生产文件解析
 
@@ -180,11 +182,11 @@ reset顺序：关闭admission -> generation++ -> cancel未issue -> 标记infligh
 
 | 配置键 | 类型/单位 | 默认/规则 | 非法行为 |
 |---|---|---|---|
-| `max_pending_dlu` | u32/count | product profile，>0 | 启动拒绝 |
+| `max_pending_dlu` | u32/count | product profile，>0；per-channel（CHAN-013） | 启动拒绝 |
 | `accumulation_timeout` | cycle+source | 必须>0且有来源/synthetic | 缺标签拒绝 |
 | `cache_buffers_per_bank` | u32 | >=2 | 启动拒绝 |
-| `queue_depth.*` | u32 | >0/乘积checked | 启动拒绝 |
-| `ecc.impl/latency` | enum/cycle+source | capability匹配 | 启动拒绝 |
+| `queue_depth.*` | u32 | >0/乘积checked；per-Bank | 启动拒绝 |
+| `ecc.impl/latency` | enum/cycle+source | capability匹配；credits per-channel（CHAN-013） | 启动拒绝 |
 | `read_retry_limit` | u32 | source-tagged | 缺来源BLOCKED |
 
 错误唯一映射：accumulator overlap/limit/timeout -> write 0x2/0x4/0x5；04 order/program replay -> 0x6/0x7；read pending missing -> 0xA；raw/ECC结果映射read 0x4/0x5/0x6；erased page -> read 0x7；capacity unusable -> read/write 0x8；die recovery/blocked -> read/write 0x9。0x9必须立即terminal，不能作为无界Busy留在queue。统计包含accepted/terminal/outstanding、sector/complete/timeout、PAL issued/completed、cache hit/stall、ECC result、batch、admin；bytes区分Host/cache/media避免重复吞吐。Debug snapshot按token/DLU/Bank排序，trace含generation、phase、mask、deadline、reservation、PAL token、data-valid。
@@ -209,9 +211,9 @@ reset顺序：关闭admission -> generation++ -> cancel未issue -> 标记infligh
 
 | ADR ID | 决策 | 背景/备选 | 理由 | 代价 | 状态 |
 |---|---|---|---|---|---|
-| ADR-CTRL-001 | 06 PAL为唯一backend | Controller内置TSV/media | 状态owner清晰且便于OpenHBX扩展 | 跨端口事件增加 | PLANNED |
+| ADR-CTRL-001 | 06 PAL为唯一backend | Controller内置TSV/media | 状态owner清晰且便于OpenHBX扩展 | 跨端口事件增加 | IMPLEMENTED |
 | ADR-CTRL-002 | DLU payload单份+sector mask | 64份独立buffer | 限制内存并支持forward | 需slice所有权 |
-| ADR-CTRL-003 | Program成功后才Host terminal | issue后提前response | OCP non-posted语义 | 延迟和outstanding增加 | PLANNED |
-| ADR-CTRL-004 | deterministic多级priority | 宿主线程并发 | 可重放 | 并行由模型而非线程表达 | PLANNED |
+| ADR-CTRL-003 | Program成功后才Host terminal | issue后提前response | OCP non-posted语义 | 延迟和outstanding增加 | IMPLEMENTED |
+| ADR-CTRL-004 | deterministic多级priority | 宿主线程并发 | 可重放 | 并行由模型而非线程表达 | IMPLEMENTED |
 
 完成定义：文件/API全部落地；CTRL-001..011均有实现落点或明确BLOCKED_SPEC；Busy/reset/stale、DLU、cache、ECC、Admin及credit守恒E1/E2通过；真实03->07 production pipeline的CTRL-T03/T04达到E3后才可声明HBF控制路径已验证；TSV状态在05生产文件中不存在；实验artifact和状态更新符合统一规范。

@@ -37,9 +37,12 @@ class DluAccumulator {
     std::array<Token, 64> tokens{};
     Cycle deadline;
   };
+  // OCP per-channel subsystem alignment: max_pending_ bounds ONE channel's
+  // pending DLUs; channels never share accumulator capacity.
   std::size_t max_pending_;
   std::uint64_t timeout_cycles_;
   std::map<DluKey, Pending> pending_;
+  std::map<std::uint64_t, std::size_t> pending_by_channel_;
 };
 
 }  // namespace openhbx::hbf::controller

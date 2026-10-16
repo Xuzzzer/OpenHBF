@@ -26,8 +26,6 @@ std::optional<Route> InterconnectFabric::route_for(std::uint64_t endpoint) const
 
 
 TransferReservation InterconnectFabric::try_reserve(const Transfer& transfer, Cycle now) {
-  if (active_.size() >= profile_.queue_depth)
-    return {ReservationCode::Busy, {}, {}, 0};
   if (transfer.id == 0 || transfer.bits == 0 || transfer.route.resources.empty() ||
       active_.count(transfer.id))
     return {ReservationCode::InvalidRoute, {}, {}, 0};
@@ -43,10 +41,16 @@ TransferReservation InterconnectFabric::try_reserve(const Transfer& transfer, Cy
   if (!repair_.is_operational(transfer.route))
     return {ReservationCode::PathUnavailable, {}, {}, transfer.route.repair_epoch};
 
-//计算一个传输任务最早什么时候能开始，以及什么时候能够完成。
+  // Per-channel transfer budget: each resource on the route (in production a
+  // route carries exactly one Channel path resource) has its own queue_depth.
   std::vector<ResourceId> resources = transfer.route.resources;
   std::sort(resources.begin(), resources.end());
   resources.erase(std::unique(resources.begin(), resources.end()), resources.end());
+  for (auto resource : resources) {
+    const auto used = active_by_resource_.find(resource);
+    if (used != active_by_resource_.end() && used->second >= profile_.queue_depth)
+      return {ReservationCode::Busy, {}, {}, transfer.route.repair_epoch};
+  }
   Cycle start = now;
   auto& resource_eat = transfer.direction == Direction::Forward
                            ? forward_resource_eat_ : return_resource_eat_;
@@ -68,14 +72,27 @@ TransferReservation InterconnectFabric::try_reserve(const Transfer& transfer, Cy
   if (!end) return {ReservationCode::Overflow, {}, {}, transfer.route.repair_epoch};
 
   const Cycle end_cycle(*end);
-  for (auto resource : resources)
+  for (auto resource : resources) {
     resource_eat[resource] = end_cycle;
-  active_.emplace(transfer.id, end_cycle);
+    ++active_by_resource_[resource];
+  }
+  active_.emplace(transfer.id, ActiveTransfer{end_cycle, std::move(resources)});
   ++reservation_count_;
   return {ReservationCode::Accepted, start, end_cycle, transfer.route.repair_epoch};
 }
 
-bool InterconnectFabric::release(TransferId id) { return active_.erase(id) == 1; }
+bool InterconnectFabric::release(TransferId id) {
+  const auto found = active_.find(id);
+  if (found == active_.end()) return false;
+  for (auto resource : found->second.resources) {
+    auto used = active_by_resource_.find(resource);
+    if (used != active_by_resource_.end() && used->second != 0) {
+      if (--used->second == 0) active_by_resource_.erase(used);
+    }
+  }
+  active_.erase(found);
+  return true;
+}
 
 bool InterconnectFabric::route_is_operational(const Route& route) const {
   return repair_.is_operational(route);
@@ -83,6 +100,7 @@ bool InterconnectFabric::route_is_operational(const Route& route) const {
 
 void InterconnectFabric::reset() {
   active_.clear();
+  active_by_resource_.clear();
   forward_resource_eat_.clear();
   return_resource_eat_.clear();
 }

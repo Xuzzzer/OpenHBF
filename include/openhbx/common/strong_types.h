@@ -32,11 +32,16 @@ struct TokenTag;
 struct GenerationTag;
 struct TxnIdTag;
 struct HandlerIdTag;
+struct ChannelIdTag;
 using Cycle = StrongId<CycleTag>;
 using Token = StrongId<TokenTag>;
 using Generation = StrongId<GenerationTag>;
 using TxnId = StrongId<TxnIdTag>;
 using HandlerId = StrongId<HandlerIdTag>;
+// Host Channel identity is used by every module 02..07, so its single
+// authoritative definition lives in common (ADR-CHAN-006). The address module
+// re-exports it as hbf::address::ChannelId for source compatibility.
+using ChannelId = StrongId<ChannelIdTag>;
 
 static_assert(!std::is_convertible<std::uint64_t, Cycle>::value, "strong IDs must not implicitly convert");
 

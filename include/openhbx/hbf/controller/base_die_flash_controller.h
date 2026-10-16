@@ -18,6 +18,10 @@
 
 namespace openhbx::hbf::controller {
 struct ControllerConfig {
+  // OCP per-channel subsystem alignment: pending/credit budgets below bound
+  // ONE Host Channel's controller slice (mirrors CHAN-010's per-slice media
+  // semantics). queue_depth stays per-Bank (a Bank has exactly one owner
+  // channel, so bank queues are channel-exclusive by construction).
   std::size_t max_pending_dlu{0};
   std::uint64_t accumulation_timeout_cycles{0};
   std::size_t queue_depth{0};
@@ -67,6 +71,7 @@ class BaseDieFlashController {
   void terminal(Token token, ControllerStatus status, bool data_valid,
                 PayloadHandle payload, Cycle now,
                 ControllerErrorInfo error_info = ControllerErrorInfo::None);
+  void release_ecc_credit(address::ChannelId channel);
   static ControllerStatus map_sequence(address::SequenceError error);
 
   ControllerConfig config_;
@@ -84,7 +89,10 @@ class BaseDieFlashController {
   std::map<std::uint64_t, BackendRecord> backend_;
   std::map<std::uint64_t, BackendRecord> ready_;
   std::set<std::uint64_t> seen_host_tokens_;
-  std::size_t ecc_inflight_{0};
+  // ECC decode credits are charged per owning channel (keyed by ChannelId
+  // value); one channel's read burst cannot exhaust another channel's ECC
+  // budget (OCP per-channel subsystem alignment).
+  std::map<std::uint64_t, std::size_t> ecc_inflight_by_channel_;
   std::uint64_t accepted_{0}, terminal_{0};
 };
 }  // namespace openhbx::hbf::controller

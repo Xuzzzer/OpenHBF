@@ -23,8 +23,11 @@
 #include "openhbx/integration/nand_media_port.h"
 #include "openhbx/interconnect/fabric.h"
 #include "openhbx/interconnect/tsv_repair.h"
-#include "openhbx/media/nand/nand_flash_device.h"
+#include "openhbx/media/nand/die_domain.h"
+#include "openhbx/media/nand/nand_channel_slice.h"
+#include "openhbx/media/nand/nand_media_router.h"
 #include "openhbx/pal/flash_pal.h"
+#include "openhbx/system/handler_ids.h"
 
 namespace openhbx {
 namespace config {
@@ -47,9 +50,8 @@ ConfigResult<std::unique_ptr<OpenHbxSystem>> compose_open_hbx_system(
 }  // namespace config
 
 namespace {
-constexpr HandlerId kMediaHandler{101};
-constexpr HandlerId kPalHandler{102};
-constexpr HandlerId kSystemHandler{103};
+// HandlerId values come from the single allocation header (CHAN-008).
+
 
 std::uint64_t add_counter(std::uint64_t current, std::uint64_t increment,
                           const char* message) {
@@ -176,13 +178,17 @@ OpenHbxSystem::OpenHbxSystem(config::ResolvedHbfConfig config)
       journal_(256, LogLevel::Warn),
       events_(&journal_),
       completions_(static_cast<std::size_t>(config_.system_model().completion_capacity)),
-      lifecycle_(events_, completions_) {}
+      lifecycle_(events_, completions_) {
+  // Ramulator-style default: print Warn+ events to std::clog. Embedders may
+  // replace the sink via set_log_sink or silence it with set_log_sink({}).
+  journal_.set_sink(&console_log);
+}
 
 OpenHbxSystem::~OpenHbxSystem() = default;
 
 bool OpenHbxSystem::build_object_graph_from_factories(std::string& error) {
   const auto& model = config_.system_model();
-  if (!events_.register_handler(kSystemHandler, [this](EventPayload payload) {
+  if (!events_.register_handler(kSystemHandlerId, [this](EventPayload payload) {
         on_system_event(std::move(payload));
       })) {
     error = "duplicate System event handler";
@@ -267,14 +273,24 @@ bool OpenHbxSystem::build_object_graph_from_factories(std::string& error) {
     return false;
   }
   if (!geometry_ || !topology_ || !mapper_ || !sequences_ || !repair_ ||
-      !fabric_ || !media_port_ || !media_ || !pal_ || !controller_ ||
+      !fabric_ || !media_port_ || !die_domain_ || media_slices_.empty() ||
+      !media_router_ || !pal_ || !controller_ ||
       !controller_port_ || !host_) {
     error = "component factories did not publish the complete production object graph";
     return false;
   }
-  media_->reset(lifecycle_.generation(), lifecycle_.cycle());
+  for (const auto& slice : media_slices_)
+    slice->reset(lifecycle_.generation(), lifecycle_.cycle());
   host_->reset(lifecycle_.generation(), lifecycle_.cycle());
   initialize_links();
+  journal_.observe({LogLevel::Info, lifecycle_.cycle(), EventPhase::Reset, 0,
+      false, lifecycle_.generation(), "open_hbx_system", "compose",
+      "object_graph", Token{},
+      "ok profile=" + config_.profile() +
+          " host_channels=" + std::to_string(geometry_->channels()) +
+          " capacity_bytes=" +
+          std::to_string(config_.geometry().capacity_bytes) +
+          " config_hash=" + config_.canonical_hash(), 0});
   return true;
 }
 
@@ -305,23 +321,56 @@ bool OpenHbxSystem::build_registered_component(const std::string& kind,
   }
   if (kind == "media") {
   media_port_ = std::make_unique<integration::NandMediaPort>();
-  media::nand::NandDeviceConfig media_config;
-  media_config.geometry = config_.geometry();
-  media_config.payload_mode = media::nand::PayloadMode::Sparse;
-  media_config.max_inflight = static_cast<std::size_t>(model.media_max_inflight);
-  media_config.timing = {
-      model.media_read_command_cycles, model.media_read_sense_cycles,
-      model.media_program_data_cycles, model.media_program_array_cycles,
-      model.media_program_verify_cycles, model.media_erase_setup_cycles,
-      model.media_erase_array_cycles, model.media_erase_verify_cycles};
-  media_config.reliability = {model.reliability_seed,
-                              std::numeric_limits<std::uint64_t>::max()};
-  media_ = std::make_unique<media::nand::NandFlashDevice>(
-      media_config, events_, kMediaHandler,
-      [this](media::MediaCompletion completion) {
-        if (pal_) pal_->on_media_completion(std::move(completion));
-      });
-  media_port_->connect(*media_);
+  // CHAN-003/004/005: channel-partitioned media. One shared DieDomain owns
+  // die-level state; each Host Channel gets its own NandChannelSlice whose
+  // owned banks are expanded from the 04 ChannelTopology ownership profile;
+  // the router is the 06-facing media port.
+  const auto& geometry_config = config_.geometry();
+  if (geometry_config.host_channels == 0 ||
+      geometry_config.host_channels > kMaxHostChannels) {
+    error = "host channel count exceeds the OCP HBF 16-channel maximum";
+    return false;
+  }
+  const std::uint64_t total_blocks = geometry_config.core_dies *
+      geometry_config.dies_per_core * geometry_config.banks_per_die *
+      geometry_config.blocks_per_bank;
+  die_domain_ = std::make_unique<media::nand::DieDomain>(total_blocks);
+  const media::nand::MediaTopology media_topology(geometry_config);
+  media_slices_.clear();
+  std::vector<media::nand::NandChannelSlice*> slices_by_channel;
+  for (std::uint64_t channel = 0; channel < geometry_config.host_channels;
+       ++channel) {
+    media::nand::NandChannelSliceConfig slice_config;
+    slice_config.geometry = geometry_config;
+    slice_config.channel = ChannelId(channel);
+    if (channel < config_.ownership().banks_by_channel.size()) {
+      for (const auto& bank : config_.ownership().banks_by_channel[channel]) {
+        const media::PhysicalAddress physical{bank.core_die, bank.die,
+                                              bank.bank, 0, 0};
+        slice_config.owned_banks.insert(media_topology.bank_id(physical));
+      }
+    }
+    slice_config.payload_mode = media::nand::PayloadMode::Sparse;
+    slice_config.max_inflight = static_cast<std::size_t>(model.media_max_inflight);
+    slice_config.timing = {
+        model.media_read_command_cycles, model.media_read_sense_cycles,
+        model.media_program_data_cycles, model.media_program_array_cycles,
+        model.media_program_verify_cycles, model.media_erase_setup_cycles,
+        model.media_erase_array_cycles, model.media_erase_verify_cycles};
+    slice_config.reliability = {model.reliability_seed,
+                                std::numeric_limits<std::uint64_t>::max()};
+    auto slice = std::make_unique<media::nand::NandChannelSlice>(
+        std::move(slice_config), *die_domain_, events_,
+        media_slice_handler(ChannelId(channel)),
+        [this](media::MediaCompletion completion) {
+          if (pal_) pal_->on_media_completion(std::move(completion));
+        });
+    slices_by_channel.push_back(slice.get());
+    media_slices_.push_back(std::move(slice));
+  }
+  media_router_ =
+      std::make_unique<media::nand::NandMediaRouter>(std::move(slices_by_channel));
+  media_port_->connect(*media_router_);
     return true;
   }
   if (kind == "interconnect") {
@@ -347,7 +396,7 @@ bool OpenHbxSystem::build_registered_component(const std::string& kind,
   pal_config.command_bits = 512;
   pal_config.page_bytes = config_.geometry().page_bytes;
   pal_ = std::make_unique<pal::FlashPal>(
-      pal_config, events_, kPalHandler, *fabric_, *media_port_,
+      pal_config, events_, kPalHandlerId, *fabric_, *media_port_,
       [this](pal::PalCompletion completion) {
         if (controller_) controller_->on_pal_completion(std::move(completion));
       });
@@ -387,7 +436,7 @@ bool OpenHbxSystem::build_registered_component(const std::string& kind,
       });
     return true;
   }
-  if (kind == "ras") return media_ != nullptr;
+  if (kind == "ras") return die_domain_ != nullptr && !media_slices_.empty();
   error = "unknown production component factory kind: " + kind;
   return false;
 }
@@ -412,6 +461,10 @@ void OpenHbxSystem::initialize_links() {
         throw std::logic_error("BUCC enable failed");
     }
   }
+  journal_.observe({LogLevel::Debug, cycle(), EventPhase::Reset, 0, false,
+      generation(), "open_hbx_system", "link_init", "ready", Token{},
+      "channels=" + std::to_string(geometry_->channels()) +
+          " axi_interfaces=" + std::to_string(model.axi_interfaces), 0});
 }
 
 AdmissionResult OpenHbxSystem::try_submit(SystemRequest request) {
@@ -419,15 +472,24 @@ AdmissionResult OpenHbxSystem::try_submit(SystemRequest request) {
   if (lifecycle_.mode() != SystemMode::Running || reset_pending_ || !request.completion ||
       request.token.value() == 0 || request.ingress.generation != generation()) {
     ++rejected_;
+    journal_.observe({LogLevel::Warn, cycle(), EventPhase::HostSchedule, 0,
+        false, generation(), "open_hbx_system", "submit", "admission",
+        request.token, "rejected:invalid_lifecycle", 0});
     return AdmissionResult::rejected(RejectionReason::InvalidLifecycle);
   }
   if (!completions_.can_register(request.token)) {
     const auto completion_snapshot = completions_.snapshot();
     if (completion_snapshot.outstanding >= config_.system_model().completion_capacity) {
       ++busy_;
+      journal_.observe({LogLevel::Debug, cycle(), EventPhase::HostSchedule, 0,
+          false, generation(), "open_hbx_system", "submit", "admission",
+          request.token, "busy:completion_capacity", 0});
       return AdmissionResult::busy();
     }
     ++rejected_;
+    journal_.observe({LogLevel::Warn, cycle(), EventPhase::HostSchedule, 0,
+        false, generation(), "open_hbx_system", "submit", "admission",
+        request.token, "rejected:duplicate_token", 0});
     return AdmissionResult::rejected(RejectionReason::InvalidArgument,
                                      "system token is not unique");
   }
@@ -457,6 +519,12 @@ AdmissionResult OpenHbxSystem::try_submit(SystemRequest request) {
   if (admission.admission.code != AdmissionCode::Accepted) {
     if (admission.admission.code == AdmissionCode::Busy) ++busy_;
     else ++rejected_;
+    journal_.observe({admission.admission.code == AdmissionCode::Busy
+                          ? LogLevel::Debug : LogLevel::Warn,
+        cycle(), EventPhase::HostSchedule, 0, false, generation(),
+        "open_hbx_system", "submit", "admission", request.token,
+        admission.admission.code == AdmissionCode::Busy
+            ? "busy:host" : "rejected:host", 0});
     synchronous_response_.reset();
     return admission.admission;
   }
@@ -585,6 +653,10 @@ void OpenHbxSystem::deliver_host_response(Token token,
     return;
   if (finish != FinishCode::Delivered)
     throw std::logic_error("Host response violated system completion contract");
+  journal_.observe({LogLevel::Debug, cycle(), EventPhase::FinalDelivery, 0,
+      false, response.generation, "open_hbx_system", "respond", "staged",
+      token, response.command_status == 0 ? "success" : "failed",
+      response.command_status});
   response_values_[token.value()] = response;
   const Generation event_generation = reset_target_generation_.value_or(generation());
   if (!schedule_system_event(token, EventPhase::FinalDelivery, event_generation))
@@ -601,7 +673,7 @@ bool OpenHbxSystem::schedule_system_event(Token token, EventPhase phase,
     due = Cycle(*next);
     cursor = EventPhase::Reset;
   }
-  EventSpec event{due, phase, kSystemHandler, event_generation, EventPayload(token)};
+  EventSpec event{due, phase, kSystemHandlerId, event_generation, EventPayload(token)};
   return events_.schedule(event, cycle(), cursor) == ScheduleCode::Accepted;
 }
 
@@ -683,7 +755,12 @@ void OpenHbxSystem::enable_periodic_bandwidth_log(
 }
 
 bool OpenHbxSystem::reset() {
-  if (lifecycle_.mode() != SystemMode::Running || reset_pending_) return false;
+  if (lifecycle_.mode() != SystemMode::Running || reset_pending_) {
+    journal_.observe({LogLevel::Warn, cycle(), EventPhase::Reset, 0, false,
+        generation(), "open_hbx_system", "reset", "request", Token{},
+        "rejected:not_running_or_pending", 0});
+    return false;
+  }
   if (!checked_add(generation().value(), 1)) return false;
   reset_pending_ = true;
   if (!schedule_system_event(Token(1), EventPhase::Reset, generation())) {
@@ -702,9 +779,11 @@ void OpenHbxSystem::execute_reset() {
   reset_target_generation_ = next;
   // Preserve already-staged terminal delivery before downstream reset paths
   // discard old-generation events.
-  events_.rebase_generation(old, next, kSystemHandler, EventPhase::FinalDelivery);
+  events_.rebase_generation(old, next, kSystemHandlerId, EventPhase::FinalDelivery);
   host_->reset(next, cycle());
-  media_->reset(next, cycle());
+  // Per-slice reset with scoped discard (CHAN-007); DieDomain state
+  // (BBT, blocked dies) intentionally survives, matching prior behavior.
+  for (const auto& slice : media_slices_) slice->reset(next, cycle());
   const auto fallback = completions_.stage_abort_generation(old);
   if (!lifecycle_.reset_without_completion_abort())
     throw std::logic_error("lifecycle reset failed");
@@ -717,6 +796,9 @@ void OpenHbxSystem::execute_reset() {
   reset_pending_ = false;
   initialize_links();
   ++resets_;
+  journal_.observe({LogLevel::Info, cycle(), EventPhase::Reset, 0, false, next,
+      "open_hbx_system", "reset", "complete", Token{},
+      "generation=" + std::to_string(next.value()), 0});
 }
 
 std::vector<IdleReason> OpenHbxSystem::module_idle() const {
@@ -724,7 +806,12 @@ std::vector<IdleReason> OpenHbxSystem::module_idle() const {
   if (host_->snapshot().outstanding != 0) result.push_back({"host", "requests outstanding"});
   if (controller_->snapshot().outstanding != 0) result.push_back({"controller", "work outstanding"});
   if (pal_->snapshot().inflight != 0) result.push_back({"pal", "requests in flight"});
-  if (media_->snapshot().inflight != 0) result.push_back({"media", "commands in flight"});
+  for (const auto& slice : media_slices_) {
+    if (slice->snapshot().inflight != 0) {
+      result.push_back({"media", "commands in flight"});
+      break;
+    }
+  }
   if (fabric_->snapshot().active_reservations != 0)
     result.push_back({"fabric", "transfers reserved"});
   if (!response_tokens_.empty()) result.push_back({"system", "Host response correlation pending"});
@@ -750,16 +837,38 @@ OpenHbxSystemStats OpenHbxSystem::stats() const {
           latency_max_cycles_, first_completion_cycle_, last_completion_cycle_};
 }
 
-std::optional<AddressDebugSnapshot> OpenHbxSystem::debug_address_snapshot(
+std::optional<FlatAddressDecode> OpenHbxSystem::decode_flat_address(
     std::uint64_t flat_address_bytes) const {
-  if (!geometry_ || !mapper_ || !sequences_ || !media_ ||
+  if (!geometry_ ||
       flat_address_bytes >= config_.geometry().capacity_bytes)
     return std::nullopt;
   const auto channel_capacity = geometry_->local_capacity_bytes();
-  if (channel_capacity == 0) return std::nullopt;
+  const auto axi_count = static_cast<std::uint64_t>(axi_interfaces());
+  if (channel_capacity == 0 || axi_count == 0) return std::nullopt;
+  const auto axi_capacity = channel_capacity / axi_count;
+  if (axi_capacity == 0) return std::nullopt;
   const hbf::address::ChannelId channel(flat_address_bytes / channel_capacity);
+  const auto channel_local = flat_address_bytes % channel_capacity;
+  return FlatAddressDecode{channel,
+                           static_cast<std::uint8_t>(channel_local / axi_capacity),
+                           channel_local % axi_capacity, channel_local};
+}
+
+std::optional<media::MediaSnapshot> OpenHbxSystem::media_snapshot(
+    ChannelId channel) const {
+  if (channel.value() >= media_slices_.size()) return std::nullopt;
+  return media_slices_[channel.value()]->snapshot();
+}
+
+std::optional<AddressDebugSnapshot> OpenHbxSystem::debug_address_snapshot(
+    std::uint64_t flat_address_bytes) const {
+  if (!mapper_ || !sequences_ || !topology_ || media_slices_.empty())
+    return std::nullopt;
+  const auto decoded = decode_flat_address(flat_address_bytes);
+  if (!decoded) return std::nullopt;
   const auto mapped = mapper_->map(
-      channel, hbf::address::LocalByteAddress(flat_address_bytes % channel_capacity));
+      decoded->channel,
+      hbf::address::LocalByteAddress(decoded->channel_local_bytes));
   if (!mapped) return std::nullopt;
   const auto& address = mapped.mapped->address;
   const hbf::address::BlockKey block{address.channel, address.owned_bank,
@@ -767,9 +876,13 @@ std::optional<AddressDebugSnapshot> OpenHbxSystem::debug_address_snapshot(
   const media::PhysicalAddress physical{
       address.physical_bank.core_die.value(), address.physical_bank.die.value(),
       address.physical_bank.bank.value(), address.block.value(), address.page.value()};
+  // Route to the channel slice owning this physical bank (CHAN-003).
+  const auto owner = topology_->owner_of(address.physical_bank);
+  if (!owner || owner->value() >= media_slices_.size()) return std::nullopt;
+  const auto& slice = media_slices_[owner->value()];
   return AddressDebugSnapshot{address, physical, sequences_->snapshot(block),
-                              media_->page_is_valid(physical),
-                              media_->block_erase_count(physical)};
+                              slice->page_is_valid(physical),
+                              slice->block_erase_count(physical)};
 }
 
 Cycle OpenHbxSystem::cycle() const noexcept { return lifecycle_.cycle(); }

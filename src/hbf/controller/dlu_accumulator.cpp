@@ -15,12 +15,14 @@ AccumulateResult DluAccumulator::add_sector(const DluKey& key,
       timeout_cycles_ == 0) return {AccumulateCode::Invalid, {}};
   auto it = pending_.find(key);
   if (it == pending_.end()) {
-    if (pending_.size() >= max_pending_ ||
+    const auto channel = key.block.channel.value();
+    if (pending_by_channel_[channel] >= max_pending_ ||
         now.value() > std::numeric_limits<std::uint64_t>::max() - timeout_cycles_)
       return {AccumulateCode::Limit, {}};
     Pending value;
     value.deadline = Cycle(now.value() + timeout_cycles_);
     it = pending_.emplace(key, std::move(value)).first;
+    ++pending_by_channel_[channel];
   }
   const auto bit = std::uint64_t{1} << index;
   if ((it->second.mask & bit) != 0) return {AccumulateCode::Overlap, {}};
@@ -65,11 +67,26 @@ std::vector<ExpiredDlu> DluAccumulator::expire(Cycle now) {
     if (!it->second.complete && it->second.deadline <= now) {
       auto current = it++;
       result.push_back({current->first, tokens(current->first)});
+      const auto channel = current->first.block.channel.value();
+      auto used = pending_by_channel_.find(channel);
+      if (used != pending_by_channel_.end() && used->second != 0) {
+        if (--used->second == 0) pending_by_channel_.erase(used);
+      }
       pending_.erase(current);
     } else ++it;
   }
   return result;
 }
-bool DluAccumulator::release(const DluKey& key) { return pending_.erase(key) != 0; }
-void DluAccumulator::reset() { pending_.clear(); }
+bool DluAccumulator::release(const DluKey& key) {
+  const auto it = pending_.find(key);
+  if (it == pending_.end()) return false;
+  const auto channel = key.block.channel.value();
+  auto used = pending_by_channel_.find(channel);
+  if (used != pending_by_channel_.end() && used->second != 0) {
+    if (--used->second == 0) pending_by_channel_.erase(used);
+  }
+  pending_.erase(it);
+  return true;
+}
+void DluAccumulator::reset() { pending_.clear(); pending_by_channel_.clear(); }
 }  // namespace openhbx::hbf::controller

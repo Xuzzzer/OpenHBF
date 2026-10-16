@@ -12,6 +12,7 @@
 #include "openhbx/config/resolved_hbf_config.h"
 #include "openhbx/hbf/address/block_sequence.h"
 #include "openhbx/hbf/host/host_types.h"
+#include "openhbx/media/media_snapshot.h"
 #include "openhbx/media/types.h"
 #include "openhbx/system/system_lifecycle.h"
 #include "openhbx/system/system_stats.h"
@@ -32,7 +33,7 @@ namespace hbf::controller { class BaseDieFlashController; }
 namespace hbf::host { class BaseDieControllerPort; class HbfHostProtocol; }
 namespace integration { class NandMediaPort; }
 namespace interconnect { class TsvRepairManager; class InterconnectFabric; }
-namespace media::nand { class NandFlashDevice; }
+namespace media::nand { class DieDomain; class NandChannelSlice; class NandMediaRouter; }
 namespace pal { class FlashPal; }
 
 struct SystemCompletion {
@@ -68,6 +69,17 @@ struct AddressDebugSnapshot {
   std::uint64_t block_erase_count{0};
 };
 
+// Result of the single flat byte address decode (CHAN-001). Ramulator's ABI
+// hands the system flat addresses; this decode is the only place where
+// channel/axi/local are derived. Downstream modules receive channel
+// explicitly and never re-derive it from a raw address.
+struct FlatAddressDecode {
+  hbf::address::ChannelId channel;
+  std::uint8_t axi_interface{0};
+  std::uint64_t axi_local_bytes{0};
+  std::uint64_t channel_local_bytes{0};
+};
+
 class OpenHbxSystem {
  public:
   static OpenHbxBuildResult compose(config::ResolvedHbfConfig config);
@@ -82,6 +94,14 @@ class OpenHbxSystem {
   SystemSnapshot snapshot() const;
   std::optional<AddressDebugSnapshot> debug_address_snapshot(
       std::uint64_t flat_address_bytes) const;
+  // The single authoritative flat->(channel, axi, local) decode (CHAN-001).
+  std::optional<FlatAddressDecode> decode_flat_address(
+      std::uint64_t flat_address_bytes) const;
+  // Per-channel media statistics (CHAN-012): slices are indexed by channel
+  // value; each slice counts independently and the sum is conserved. Exception:
+  // MediaSnapshot::bad_blocks is the shared DieDomain's global BBT size and is
+  // identical for every channel — do not sum it (see NandChannelSlice).
+  std::optional<media::MediaSnapshot> media_snapshot(ChannelId channel) const;
   OpenHbxSystemStats stats() const;
   void enable_periodic_bandwidth_log(std::uint64_t interval_cycles);
   EventJournalSnapshot observed_events() const { return journal_.snapshot(); }
@@ -124,7 +144,11 @@ class OpenHbxSystem {
   std::unique_ptr<interconnect::TsvRepairManager> repair_;
   std::unique_ptr<interconnect::InterconnectFabric> fabric_;
   std::unique_ptr<integration::NandMediaPort> media_port_;
-  std::unique_ptr<media::nand::NandFlashDevice> media_;
+  // Channel-partitioned media (CHAN-003/005): one shared DieDomain plus one
+  // slice per Host Channel, indexed by channel value, behind the router.
+  std::unique_ptr<media::nand::DieDomain> die_domain_;
+  std::vector<std::unique_ptr<media::nand::NandChannelSlice>> media_slices_;
+  std::unique_ptr<media::nand::NandMediaRouter> media_router_;
   std::unique_ptr<pal::FlashPal> pal_;
   std::unique_ptr<hbf::controller::BaseDieFlashController> controller_;
   std::unique_ptr<hbf::host::BaseDieControllerPort> controller_port_;

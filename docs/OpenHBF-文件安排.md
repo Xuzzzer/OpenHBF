@@ -73,6 +73,8 @@ tests/integration/system/
 
 02拥有cycle、EventQueue、token/generation、结构化event journal、RequestBridge和Ramulator callback lifetime；不实现HBF协议或Media行为。日志专项说明见[`OPENHBX_LOGGING_AND_OBSERVABILITY.md`](OPENHBX_LOGGING_AND_OBSERVABILITY.md)。
 
+Channel 分片重构在 02 侧新增 `include/openhbx/system/handler_ids.h`（HandlerId 分段分配）与 `EventQueue::discard_generation(HandlerId, Generation)` 作用域丢弃，见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) §5.6/§5.7。
+
 ### 4.3 03 Host协议
 
 建议根路径为：
@@ -142,6 +144,8 @@ tests/component/media/
 ```
 
 07拥有NAND物理状态、payload、stage、Media EAT、BBT和raw reliability。ECC/Host status策略仍归05，TSV fault归06。
+
+Channel 分片重构在 07 侧新增 `include/openhbx/media/nand/{die_domain,nand_channel_slice,nand_media_router}.h` 与 `src/media/nand/{die_domain,nand_channel_slice}.cpp`（`NandMediaRouter` 无状态，header-only）；单体 `NandFlashDevice` 退役。测试侧新增 `tests/component/media/test_channel_partition.cpp`（CHAN 系列分片不变量，E2）。逐文件权威设计见 LLD_07 第7章与 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) §5.3-5.5。
 
 ### 4.8 08 验证
 

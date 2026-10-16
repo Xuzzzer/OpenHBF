@@ -50,7 +50,7 @@ void dispatch(EventQueue& events, Cycle cycle, Generation generation) {
 }
 
 FlashPhysicalRequest read_request(std::uint64_t token, Generation generation = Generation(0)) {
-  return {Token(token), generation, CommandKind::Read, {}, 0, {}};
+  return {Token(token), generation, CommandKind::Read, ChannelId(0), {}, 0, {}};
 }
 
 void verify_media_status_mapping(MediaStatus media_status, PalStatus pal_status,
@@ -85,7 +85,7 @@ int main() {
                [&](PalCompletion completion) { completions.push_back(std::move(completion)); });
 
   const auto rejected_payload = pal.try_issue(
-      {Token(1), Generation(0), CommandKind::Read, {}, 0,
+      {Token(1), Generation(0), CommandKind::Read, ChannelId(0), {}, 0,
        PayloadHandle::from_bytes({1})}, Cycle(0));
   assert(rejected_payload.code == AdmissionCode::Rejected);
   assert(pal.snapshot().inflight == 0 && fabric.snapshot().reservation_count == 0);
@@ -177,7 +177,7 @@ int main() {
 
   auto program_payload = PayloadHandle::from_bytes(std::vector<std::uint8_t>(4096, 0x33));
   assert(malformed_pal.try_issue(
-      {Token(31), Generation(0), CommandKind::Program, {}, 0, program_payload},
+      {Token(31), Generation(0), CommandKind::Program, ChannelId(0), {}, 0, program_payload},
       Cycle(40)).code == AdmissionCode::Accepted);
   dispatch(malformed_events, Cycle(562), Generation(0));
   malformed_pal.on_media_completion(
@@ -244,4 +244,48 @@ int main() {
   verify_media_status_mapping(MediaStatus::InvalidState, PalStatus::InvalidState, false);
   verify_media_status_mapping(MediaStatus::InvalidPayload, PalStatus::InvalidPayload, false);
   verify_media_status_mapping(MediaStatus::IntegrityError, PalStatus::MediaIntegrityError, false);
+
+  // CHAN-013: max_inflight bounds ONE channel's PAL slice. Filling channel 0
+  // must not consume channel 1's in-flight budget, and a channel-0 terminal
+  // reopens only channel 0.
+  EventQueue iso_events;
+  TsvRepairManager iso_repair(8, 0);
+  InterconnectFabric iso_fabric(profile(), iso_repair);
+  FakeMedia iso_media;
+  std::vector<PalCompletion> iso_completions;
+  FlashPal iso_pal({2, 1, 1, 1, 512, 4096}, iso_events, HandlerId(65), iso_fabric,
+                   iso_media, [&](PalCompletion completion) {
+                     iso_completions.push_back(std::move(completion));
+                   });
+  const auto iso_read = [](std::uint64_t token, std::uint64_t channel) {
+    return FlashPhysicalRequest{Token(token), Generation(0), CommandKind::Read,
+                                ChannelId(channel), {}, 0, {}};
+  };
+  assert(iso_pal.try_issue(iso_read(41, 0), Cycle(0)).code == AdmissionCode::Accepted);
+  assert(iso_pal.try_issue(iso_read(42, 0), Cycle(0)).code == AdmissionCode::Accepted);
+  assert(iso_pal.try_issue(iso_read(43, 0), Cycle(0)).code == AdmissionCode::Busy);
+  assert(iso_pal.try_issue(iso_read(44, 1), Cycle(0)).code == AdmissionCode::Accepted);
+  assert(iso_pal.try_issue(iso_read(45, 1), Cycle(0)).code == AdmissionCode::Accepted);
+  assert(iso_pal.try_issue(iso_read(46, 1), Cycle(0)).code == AdmissionCode::Busy);
+  assert(iso_pal.snapshot().inflight == 4);
+  // Four 512-bit forwards serialize on the shared test route: ends 10/20/30/40.
+  // The event queue dispatches in due order, so drain every forward first.
+  dispatch(iso_events, Cycle(10), Generation(0));
+  dispatch(iso_events, Cycle(20), Generation(0));
+  dispatch(iso_events, Cycle(30), Generation(0));
+  dispatch(iso_events, Cycle(40), Generation(0));
+  iso_pal.on_media_completion(
+      {Token(41), MediaStatus::Success, true,
+       PayloadHandle::from_bytes(std::vector<std::uint8_t>(4096, 0x5a)), Cycle(10)});
+  // Return direction has an independent EAT (full duplex): the 33280-bit
+  // read-data return starts at cycle 10 and completes at 10 + 522 = 532.
+  dispatch(iso_events, Cycle(532), Generation(0));
+  assert(iso_completions.size() == 1 && iso_completions[0].token == Token(41));
+  assert(iso_completions[0].status == PalStatus::Success &&
+         iso_completions[0].data_valid);
+  assert(iso_pal.snapshot().inflight == 3);
+  assert(iso_pal.try_issue(iso_read(47, 0), Cycle(532)).code == AdmissionCode::Accepted);
+  assert(iso_pal.try_issue(iso_read(48, 1), Cycle(532)).code == AdmissionCode::Busy);
+  const auto iso_snap = iso_pal.snapshot();
+  assert(iso_snap.accepted == 5 && iso_snap.terminal == 1 && iso_snap.inflight == 4);
 }

@@ -6,7 +6,7 @@
 
 **规范**：*OCP HBF Architecture Specification v0.7.0 FINAL*
 
-**状态基线**：截至2026-08-30，S0-S7已形成E0至E2组件证据，重做后的S8形成真实01至07 pipeline E3证据；S9 Docker与宿主重放均为3/3，形成E3及`E4-extracted-field`候选证据。新增Docker Flash read性能测试形成单endpoint synthetic `E4-model-resource`候选证据，但没有完整E4 conformance或多资源饱和性能证据。逐项状态不得超过下方证据审计范围。
+**状态基线**：截至2026-08-30，S0-S7已形成E0至E2组件证据，重做后的S8形成真实01至07 pipeline E3证据；S9 Docker与宿主重放均为3/3，形成E3及`E4-extracted-field`候选证据。新增Docker Flash read性能测试形成单endpoint synthetic `E4-model-resource`候选证据，但没有完整E4 conformance或多资源饱和性能证据。2026-09-20的Channel分片重构（§9 `CHAN-001`至`CHAN-012`）新增E2组件证据，全量`ctest` 23/23通过，并按`ADR-CHAN-002`重估16 channel最大读性能基线；该重构未提升任何既有`VER-*`条目的证据等级。2026-10-15的前端 per-channel 对齐（§9 `CHAN-013`/`CHAN-014`，ADR-CHAN-009）新增E2组件证据与三组trace级E3功能验证（`build/artifacts/functional_verification/`：写读回环数据校验、16 channel带宽上限、channel独立性A/B对照），全量`ctest`除既有超时的`openhbx_hbf_multichannel_bank_patterns_test`（未跟踪新测试，规模超出其1800s预算，逐阶段输出数值正确）外23/23通过；16 channel最大读基线不变（8869 cycles / 1891.669 GB/s）。逐项状态不得超过下方证据审计范围。
 
 ## 1. 状态定义
 
@@ -133,7 +133,34 @@ PAL是OpenHBX软件边界，不是OCP HBF规范术语。
 
 NAND timing、cell mode和可靠性数字若非vendor数据，必须标记为synthetic，不能作为OCP参数合规结论。
 
-## 9. 验证要求
+## 9. Channel 分片建模
+
+详见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md)。本系列是 DESIGN_CHOICE 性质的结构性改造：物理依据为 `HBF_CHANNEL_CORE_DIE_TOPOLOGY.md` 冻结结论。
+
+| Requirement ID | 要求 | 来源 | HLD/LLD | Test ID | 设计状态 |
+|---|---|---|---|---|---|
+| CHAN-001 | flat→channel解码唯一发生于02 RequestBridge | DESIGN_CHOICE | 02 | CHAN-T01 | 🔵 `IMPLEMENTED` |
+| CHAN-002 | channel强类型显式贯穿至FlashCommand | DESIGN_CHOICE | 06/07 | CHAN-T02 | 🔵 `IMPLEMENTED` |
+| CHAN-003 | 介质按channel分片为NandChannelSlice | 拓扑冻结结论 | 07 | CHAN-T03 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-004 | 全局die bus删除，ChannelMediaPath(channel,core) EAT | 拓扑冻结结论§4 | 07 | CHAN-T04 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-005 | Die级共享状态集中于DieDomain；无reset方法，BBT/blocked dies跨reset保持 | 拓扑冻结结论§5 | 07/02 | CHAN-T05 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-006 | ownership硬不变量，跨channel访问结构性拒绝 | OCP产品组织 | 07 | CHAN-T06 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-007 | EventQueue按(handler,generation)作用域discard | DESIGN_CHOICE | 02 | CHAN-T07 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-008 | HandlerId分段分配，N slice唯一 | DESIGN_CHOICE | 02 | CHAN-T08 | 🔵 `IMPLEMENTED` |
+| CHAN-009 | CapacityUnusable基于全局BBT视图 | OCP reduced capacity | 07 | CHAN-T09 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-010 | media_max_inflight语义为每slice | DESIGN_CHOICE | 01/07 | CHAN-T10 | 🔵 `IMPLEMENTED` |
+| CHAN-011 | 分片后同seed/config/timeline结果确定 | 系统不变量 | 02/07 | CHAN-T11 | 🟢 `VERIFIED`（07范围E2） |
+| CHAN-012 | 介质统计按channel分解且汇总守恒 | DESIGN_CHOICE | 07/08 | CHAN-T12 | 🔵 `IMPLEMENTED` |
+| CHAN-013 | 前端预算按channel计费：PAL max_inflight、DLU max_pending、ECC credits；PAL Busy无跨channel队头阻塞 | OCP HBF §4.4 per-channel子系统 | 05/06 | CHAN-T13 | 🟢 `VERIFIED`（E2，2026-10-15） |
+| CHAN-014 | Fabric queue_depth按路由资源计费，无cube级总量池 | OCP HBF §4.4 per-channel子系统 | 06 | CHAN-T14 | 🟢 `VERIFIED`（E2，2026-10-15） |
+
+**证据记录（2026-09-20）**：Conda 环境 CMake/CTest，`build/tests` 默认选项，全部功能性代码变更落地后 `ctest` 全量 23/23 通过。此后仅追加了只读访问器 `OpenHbxSystem::media_snapshot(ChannelId)`（构建干净，并单独重跑 `openhbx_hbf_max_read_bandwidth_test` 通过）与注释/文档修改，未再执行全量 ctest。新增 `openhbx_channel_partition_test`（`tests/component/media/test_channel_partition.cpp`，labels `openhbx_s3;openhbx_media;CHAN-T06;CHAN-T07;CHAN-T09;CHAN-T11;CHAN-T12`）为 **E2 组件集成**证据：在 1 个共享 `DieDomain` + 2 个 `NandChannelSlice` + `NandMediaRouter` 的真实装配上断言 ownership 拒绝零副作用、同 core die 双 channel 完成周期一致（均为 cycle 25，证明无全局 die 总线）、单 slice reset 不影响另一 slice 的 pending 事件与页状态、全局 BBT/`CapacityUnusable` 跨 channel 一致、双跑完成时间线逐字段一致、每 slice `accepted = terminal + outstanding` 守恒。迁移后的 `openhbx_media_component_test` 与 `openhbx_media_flash_semantics_test` 在新装配下保持既有 MEDIA 断言全绿。
+
+**未覆盖范围**：CHAN-001/002 尚无专用 oracle——flat 解码唯一性与端到端 channel 保真目前仅由 `openhbx_s8_system_test`（E3）和 16 channel `openhbx_hbf_max_read_bandwidth_test`（4096/4096 完成、0 failure；若 channel 在链路中丢失或错位，slice 的 ownership 校验会拒绝命令）**隐式**覆盖。CHAN-008 依赖 slice 构造时重复 handler 抛异常，无专用测试。CHAN-010 的「全局 in-flight = Σ slice」语义未断言。CHAN-012 的每 channel 分解已有 `OpenHbxSystem::media_snapshot(ChannelId)`，但「汇总值与系统级统计一致」未断言；且需注意 `MediaSnapshot::bad_blocks` 取自共享 `DieDomain` 的全局 BBT（CHAN-009），每 slice 读数相同、**不可跨 channel 求和**，其余字段（inflight/queued_events/committed_pages/stale_events）为 slice 私有、可求和。系统级（02）确定性 digest 结论仍以 §10 `VER-005` 为准，未因本次改造提升。
+
+**证据记录（2026-10-15，前端 per-channel 对齐，ADR-CHAN-009）**：Conda 环境 CMake/CTest，`build/tests`。CHAN-T13 落在 `tests/component/pal/test_flash_pal.cpp`（`openhbx_pal_component_test`，E2）：channel 0 的 PAL 在途打满（`max_inflight=2`）后第 3 个请求 Busy，而 channel 1 仍保有完整独立预算（2 Accepted + 第 3 个 Busy）；channel 0 一个请求 terminal 后仅 channel 0 重新放开。CHAN-T14 落在 `tests/unit/interconnect/test_fabric.cpp`（`openhbx_interconnect_unit_test`，E2）：`queue_depth=1` 时路由资源 A 打满后同路由 Busy、资源 B 独立可约，release 后仅 A 重开。控制器侧 DLU/ECC per-channel 预算与 `drive_scheduler` deferred requeue 由全量 `ctest` 回归覆盖（单 channel 语义等价，既有用例不变）。未覆盖：CHAN-013 的 ECC/DLU 预算隔离尚无与 PAL 同级的双 channel 专用用例（当前由代码对称性与单 channel 回归隐式覆盖）；`drive_scheduler` deferred requeue 的「Busy channel 不阻塞其他 channel」尚无系统级双 channel 对照用例。
+
+## 10. 验证要求
 
 | Requirement ID | 验证目标 | 证据级别 | HLD/LLD | 设计状态 |
 |---|---|---|---|---|
@@ -146,7 +173,7 @@ NAND timing、cell mode和可靠性数字若非vendor数据，必须标记为syn
 | VER-007 | E4 vector、规范定位与artifact可审计 | E4 | 08 | `VERIFIED`（已提取字段范围） |
 | VER-008 | 未提取OCP字段保持阻断，不以通用常识补齐 | E4 audit | 08 | `BLOCKED_SPEC` |
 
-## 10. 阻断队列
+## 11. 阻断队列
 
 | Gap ID | 缺口 | 影响需求 | 关闭条件 |
 |---|---|---|---|
@@ -161,7 +188,7 @@ NAND timing、cell mode和可靠性数字若非vendor数据，必须标记为syn
 | GAP-009 | hybrid bonding物理参数 | PAL-007 | vendor pitch/lane/BER/latency/energy/thermal数据 |
 | GAP-010 | factory/runtime坏块未与Zone/容量视图及Host replay形成闭环 | ADDR-008/MEDIA-005/VER-003/004 | 启动期manifest规避、运行期BBT提交与原子retirement、无spare容量降级及E3故障测试全部完成 |
 
-## 11. 发布声明规则
+## 12. 发布声明规则
 
 `DESIGNED`、`PLANNED`和文件存在均不代表实现或验证完成。只有符合[`实验与测试执行规范.md`](实验与测试执行规范.md)的E3/E4 artifact才能支持端到端或conformance声明。
 

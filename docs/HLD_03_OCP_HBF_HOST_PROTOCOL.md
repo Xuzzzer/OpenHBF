@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_03_OCP_HBF_HOST_PROTOCOL.md`
 **对应文档完整路径**：`docs/LLD_03_OCP_HBF_HOST_PROTOCOL.md`
-**客观状态**：⚪ `PLANNED`；逐bit UCIe/AXI外部细节为🔴 `BLOCKED_SPEC`
+**客观状态**：🟡 `PARTIAL`；Host transaction组件已有实现及E1/E2测试，逐bit UCIe/AXI外部细节仍为🔴 `BLOCKED_SPEC`。
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史

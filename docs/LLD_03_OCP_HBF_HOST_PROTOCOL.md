@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_03_OCP_HBF_HOST_PROTOCOL.md`
 **对应HLD完整路径**：`docs/HLD_03_OCP_HBF_HOST_PROTOCOL.md`
-**客观状态**：⚪ `PLANNED`；wire-level conformance为🔴 `BLOCKED_SPEC`
+**客观状态**：🟡 `PARTIAL`；transaction-level Host组件已实现并覆盖unit/component测试；wire-level conformance为🔴 `BLOCKED_SPEC`。
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史

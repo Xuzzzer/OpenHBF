@@ -30,6 +30,10 @@ struct FlashCommand {
   Token token;
   Generation generation;
   CommandKind kind{CommandKind::Read};
+  // Owning Host Channel (CHAN-002). Legal iff
+  // channel == owner_channel(address.bank); enforced structurally by the
+  // channel slice's owned-bank membership check (CHAN-006).
+  ChannelId channel{};
   PhysicalAddress address;
   PayloadHandle payload;
 };

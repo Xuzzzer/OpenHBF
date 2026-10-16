@@ -28,11 +28,19 @@ class InterconnectFabric {
   const FabricProfile& profile() const noexcept { return profile_; }
 
  private:
+  struct ActiveTransfer {
+    Cycle end;
+    std::vector<ResourceId> resources;
+  };
   FabricProfile profile_;
   TsvRepairManager& repair_;
   std::map<ResourceId, Cycle> forward_resource_eat_;
   std::map<ResourceId, Cycle> return_resource_eat_;
-  std::map<TransferId, Cycle> active_;
+  std::map<TransferId, ActiveTransfer> active_;
+  // OCP per-channel subsystem alignment: queue_depth is charged per Channel
+  // path resource (each route's resources), not as a cube-global pool, so one
+  // channel's pressure cannot consume another channel's transfer budget.
+  std::map<ResourceId, std::size_t> active_by_resource_;
   std::uint64_t reservation_count_{0};
 };
 

@@ -33,6 +33,11 @@ class EventQueue {
   EventQueueSnapshot snapshot() const;
   bool empty() const noexcept { return events_.empty(); }
   void discard_generation(Generation current);
+  // Scoped variant (CHAN-007): discards only events owned by `handler` whose
+  // generation differs from `current`; every other handler's events are
+  // untouched. Used by per-channel media slice reset so one slice cannot
+  // purge another slice's pending stage events.
+  void discard_generation(HandlerId handler, Generation current);
   std::size_t rebase_generation(Generation old_generation,
                                 Generation new_generation,
                                 HandlerId handler, EventPhase phase);

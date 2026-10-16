@@ -228,3 +228,5 @@ reset/fault test覆盖事件前、同cycle及事件后；同cycle顺序来自02�
 | VER-E4-AUDIT | evidence index | 每条E4定位与bundle完整 | E4 |
 
 实验执行、证据保存和状态更新统一遵循[`实验与测试执行规范.md`](实验与测试执行规范.md)。在`VER-008`缺口关闭前，只能对已提取字段逐项声明一致，不得声明完整OCP conformance。
+
+读取 latency 的测量区间从 Host request 被 `RequestBridge` 接受时的模拟 cycle 开始，到 `SystemCompletion.completed_at` 结束，包含完整 production path。最近一次 Conda/CTest 复现为 15 次 read、61440 B、67996 cycles、P50=13598 cycles、P95=13599 cycles、0.903583 GB/s；该数字仅适用于 synthetic profile。

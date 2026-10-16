@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_02_SYSTEM_INTEGRATION_EVENT_KERNEL.md`
 **对应HLD完整路径**：`docs/HLD_02_SYSTEM_INTEGRATION_EVENT_KERNEL.md`
-**客观状态**：⚪ `PLANNED`
+**客观状态**：🟡 `PARTIAL`；system kernel生产文件已落地，integration adapter及系统级测试仍在完善。
 **适用基线**：OCP HBF v0.7.0；当前 `thirdparty/ramulator2`
 **覆盖需求**：`RAM-001`至`RAM-008`、`SYS-001`至`SYS-008`
 
@@ -167,8 +167,9 @@ cycle = checked_add(cycle, 1)
 
 | 路径 | 动作 | owner | 主要职责 | API/类型 | 依赖 | 需求 | 测试 | 状态 |
 |---|---|---|---|---|---|---|---|---|
-| `include/openhbx/system/host_request.h`、`src/system/host_request.cpp` | 新增/迁移 | System | canonical request/completion | value types | common | RAM-004/006 | RAM-T04/T06 | PLANNED |
-| `include/openhbx/system/event_queue.h`、`src/system/event_queue.cpp` | 新增/迁移 | System | deterministic events | `EventQueue` | common event | SYS-001/002/004 | SYS-T01/T02/T04 | PLANNED |
+| `include/openhbx/hbf/host/host_types.h`、`include/openhbx/integration/request_bridge.h`、`src/integration/request_bridge.cpp` | 已实现 | Integration/Host | canonical request/completion bridge | value types | common | RAM-004/006 | RAM-T04/T06 | PARTIAL |
+| `include/openhbx/system/event_queue.h`、`src/system/event_queue.cpp` | 新增/迁移 | System | deterministic events | `EventQueue` | common event | SYS-001/002/004、CHAN-007 | SYS-T01/T02/T04、CHAN-T07 | PLANNED |
+| `include/openhbx/system/handler_ids.h` | 新增 | System | HandlerId 分段分配（system=1、pal=2、media slice 段 [1024,1040)） | `kSystemHandlerId`/`kPalHandlerId`/`media_slice_handler()` | strong types | CHAN-008 | CHAN-T08 | 🔵 `IMPLEMENTED` |
 | `include/openhbx/system/observability.h`、`src/system/observability.cpp` | 新增 | System | structured event journal与确定性renderer | `ObservedEvent`/`EventJournal` | strong types | SYS-002/008 | SYS-T02/T08 | PARTIAL |
 | `include/openhbx/system/completion_registry.h`、`src/system/completion_registry.cpp` | 新增/迁移 | System | exactly once | `CompletionRegistry` | host request | SYS-003/007 | SYS-T03/T07 | PLANNED |
 | `include/openhbx/system/system_lifecycle.h`、`src/system/system_lifecycle.cpp` | 新增 | System | reset/drain/mode | lifecycle | module ports | SYS-004/005 | SYS-T04/T05 | PLANNED |
@@ -183,7 +184,7 @@ cycle = checked_add(cycle, 1)
 
 ### 7.2 生产文件逐项解析
 
-#### `HostRequest`（`include/openhbx/system/host_request.h`、`src/system/host_request.cpp`）
+#### Host request types（`include/openhbx/hbf/host/host_types.h`）
 
 **职责与owner**：System模块唯一拥有canonical request/completion、payload handle和validation；不含Ramulator callback。**API**：value constructors、`validate_host_request()`。**输入输出**：adapter字段输入，typed request/completion输出。**状态与所有权**：Accepted后payload归system，delivery后释放。**错误与边界**：非法size/op/payload返回typed validation error且不转移所有权。**依赖**：common strong types。**需求/测试/状态**：RAM-004/006，RAM-T04/T06，`PLANNED`。
 
@@ -294,3 +295,6 @@ Debug event字段固定为cycle/phase/sequence/handler/token/generation/type/res
 | ADR-02-005 | reset phase先于commit | 同cycle竞态 | sequence决定 | stale状态不可提交 | reset语义需全模块配合 | PLANNED |
 
 完成定义：所有生产/测试文件和Factory/CMake链接落地；01能构造唯一HBF对象图；Ramulator真实Frontend能反压重试并收到一次callback；EventQueue、generation、reset和drain守恒成立；RAM-T01至08达到E2，SYS目标项按表达到E1/E2/E3；无固定延迟旁路、第二事件队列或未关闭`BLOCKED_SPEC`进入正式profile。当前状态为`PLANNED`。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

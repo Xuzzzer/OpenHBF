@@ -1,16 +1,17 @@
 # OpenHBX NAND Media 与 RAS 详细设计
 
-**文档版本**：V1.0
+**文档版本**：V1.1
 **文档位置**：`docs/LLD_07_NAND_MEDIA_RAS.md`  
 **对应HLD**：`docs/HLD_07_NAND_MEDIA_RAS.md`  
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）
-**覆盖需求**：`MEDIA-001`至`MEDIA-008`
+**设计状态**：🟡 `PARTIAL`（`status: PARTIAL`）
+**覆盖需求**：`MEDIA-001`至`MEDIA-008`、`CHAN-002`至`CHAN-007`、`CHAN-009`、`CHAN-012`
 
 ## 修订历史
 
 | 版本 | 日期 | 修订说明 |
 |---|---|---|
 | V1.0 | 2026-08-28 | 首期HBF NAND实现级设计 |
+| V1.1 | 2026-09-20 | Channel 分片改造：`NandFlashDevice` 单体退役，拆分为 `DieDomain` + 每 Channel `NandChannelSlice` + `NandMediaRouter`；全局 die EAT 由 `ChannelMediaPath(channel,core)` 取代。架构与 ADR 见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) |
 
 ## 1. 模块概述与约束
 
@@ -37,6 +38,10 @@
 | MEDIA-006 | 4/9 | `ReliabilityModel` | deterministic raw outcome | VER-MEDIA-006 | `PLANNED` |
 | MEDIA-007 | 7 | `cancel_generation` | abort/stale guard | VER-MEDIA-007 | `PLANNED` |
 | MEDIA-008 | 8 | `DieEnvironment` | sourced multiplier | VER-MEDIA-008 | 🔴 `BLOCKED_SPEC` |
+| CHAN-003/004 | 分片架构文档§3/§5.4 | `NandChannelSlice` | per-channel bank slice + ChannelMediaPath EAT | CHAN-T03/04 | 🟢 `VERIFIED`（E2） |
+| CHAN-005/009 | 分片架构文档§5.3 | `DieDomain` | 共享 blocked/BBT/capacity 视图 | CHAN-T05/09 | 🟢 `VERIFIED`（E2） |
+| CHAN-006 | 分片架构文档§5.5 | `NandMediaRouter`+slice validate | channel 分发与 ownership 拒绝 | CHAN-T06 | 🟢 `VERIFIED`（E2） |
+| CHAN-002 | 分片架构文档§5.2 | `FlashCommand.channel` | 全链路显式 channel | CHAN-T02 | 🔵 `IMPLEMENTED`（无专用 oracle） |
 
 ## 3. 核心类型与数据结构
 
@@ -54,13 +59,13 @@
 
 ## 4. 头文件与公开边界
 
-公开头：`include/openhbx/media/types.h`定义command/completion；`include/openhbx/media/nand/nand_flash_device.h`定义`IMediaDevice`实现；`include/openhbx/media/media_snapshot.h`定义只读诊断。NAND内部头位于`src/media/nand/`，RAS内部头位于`src/ras/`。06只能依赖公开头，不能包含上述内部路径。
+公开头：`include/openhbx/media/types.h`定义command/completion（含`FlashCommand.channel`）；`include/openhbx/media/nand/nand_media_router.h`定义06可见的`pal::IFlashMediaPort`实现；`include/openhbx/media/nand/nand_channel_slice.h`与`include/openhbx/media/nand/die_domain.h`供02装配使用；`include/openhbx/media/media_snapshot.h`定义只读诊断。NAND内部头位于`src/media/nand/`，RAS内部头位于`src/ras/`。06只能依赖`types.h`与router头，不能包含上述内部路径。
 
 ## 5. 函数与接口详细设计
 
-### `IssueResult NandFlashDevice::try_issue(FlashCommand&& cmd, Cycle now)`
+### `AdmissionResult NandChannelSlice::try_issue(FlashCommand command, Cycle now)`
 
-依次验证family、地址、payload、BBT和Page/Block legality，再检查inflight credit与首stage EAT。Busy/Rejected时cmd仍归调用方且状态/event不变；Accepted后创建context、pending delta并安排stage event。
+依次验证地址可展平、**ownership**（`command.channel == 本 slice channel` 且 bank ∈ `owned_banks`，CHAN-006）、全局`CapacityUnusable`与BBT（经`DieDomain`，CHAN-009）、payload与Page/Block legality，再检查per-slice inflight credit（CHAN-010）、token唯一性与首stage EAT。Busy/Rejected时介质状态与事件队列零变化（`command`虽按值传入，但不产生任何可观测副作用）；Accepted后创建context、pending delta并安排stage event。router（`NandMediaRouter::try_issue_media`）在此之前只做channel越界检查与分发，不做ownership判定（ADR-CHAN-004）。
 
 ### `void CommandEngine::on_stage_event(StageEvent event)`
 
@@ -70,7 +75,7 @@
 
 Program验证Page仍处于reservation对应epoch后原子写payload并置Valid；Erase验证Block epoch后清payload/Page、递增epoch与PEC。failure/abort调用`discard_delta`。
 
-### `RawReadOutcome ReliabilityModel::evaluate(const ReadContext&)`
+### `RawReadClass ReliabilityModel::evaluate_read(uint64_t page, uint64_t pec, double temperature_c)`
 
 输入seed、稳定地址、PEC/read count、retention age、temperature band与fault rules；不使用调用顺序之外的不稳定熵。返回raw bit-error分类与retry/refresh提示，不执行ECC或Host status映射。
 
@@ -112,6 +117,10 @@ Read snapshot在sense成功后创建，若后续raw outcome为UECC则completion�
 | `src/ras/reliability.h`、`src/ras/reliability.cpp` | 新增 | 07 | deterministic raw faults | MEDIA-006/008 | `PLANNED` |
 | `src/ras/bbt.h`、`src/ras/bbt.cpp` | 新增 | 07 | bad/retire bitmap | MEDIA-005 | `PLANNED` |
 | `src/ras/die_environment.h`、`src/ras/die_environment.cpp` | 新增 | 07 | temperature/path observation | MEDIA-008 | `BLOCKED_SPEC` |
+| `include/openhbx/media/nand/die_domain.h`、`src/media/nand/die_domain.cpp` | 新增 | 07 | Die级共享状态（blocked/BBT/未来温度） | CHAN-005/009 | 🟢 `VERIFIED`（E2） |
+| `include/openhbx/media/nand/nand_channel_slice.h`、`src/media/nand/nand_channel_slice.cpp` | 新增 | 07 | 每Channel介质切片（stage FSM/Bank与ChannelMediaPath EAT/payload） | CHAN-003/004/006 | 🟢 `VERIFIED`（E2） |
+| `include/openhbx/media/nand/nand_media_router.h` | 新增 | 07 | `IFlashMediaPort`实现，按`command.channel`分发（无状态，header-only，无对应 .cpp） | CHAN-002/006 | 🟢 `VERIFIED`（E2） |
+| `include/openhbx/media/nand/nand_flash_device.h`、`src/media/nand/nand_flash_device.cpp` | 删除 | 07 | 单体facade退役，职责拆入上三组件 | — | `PLANNED` |
 | `tests/unit/media/nand/test_*.cpp`、`tests/unit/ras/test_*.cpp` | 新增 | 08 | topology/state/EAT/RAS unit | MEDIA-* | `PLANNED` |
 | `tests/component/media/test_nand_device.cpp` | 新增 | 08 | real media+EventKernel | MEDIA-002至007 | `PLANNED` |
 
@@ -148,6 +157,8 @@ Read snapshot在sense成功后创建，若后续raw outcome为UECC则completion�
 **对应需求**：MEDIA-001至008；测试`VER-MEDIA-002/007`。
 
 **实现状态**：⚪ `PLANNED`。
+
+> **退役注记（V1.1）**：本单体 facade 在 Channel 分片改造中退役：装配职责上移至 02 `OpenHbxSystem`（构建 `DieDomain` + N 个 `NandChannelSlice` + `NandMediaRouter`），介质引擎职责由 `NandChannelSlice` 承担，Die 级状态由 `DieDomain` 承担。全局 `die_eat_`、类内 `blocked_dies_`/`bbt_`、`planes_*` 死字段与 `struct Reservation` 死代码一并删除。
 
 ### Topology（`src/media/nand/topology.h`、`src/media/nand/topology.cpp`）
 
@@ -259,11 +270,59 @@ Read snapshot在sense成功后创建，若后续raw outcome为UECC则completion�
 
 **对应需求**：MEDIA-008；测试`VER-MEDIA-008`。
 
-**实现状态**：🔴 `BLOCKED_SPEC`。
+**实现状态**：🔴 `BLOCKED_SPEC`。MEDIA-008 解除阻断后，Die 温度时间线的归宿为下述 `DieDomain`（ADR-CHAN-001），本文件届时合并。
 
-### 07测试文件（`tests/unit/media/nand/test_*.cpp`、`tests/unit/ras/test_*.cpp`、`tests/component/media/test_nand_device.cpp`）
+### DieDomain（`include/openhbx/media/nand/die_domain.h`、`src/media/nand/die_domain.cpp`）
 
-**测试域**：unit按Topology、State/Page、EAT、Timing、Reliability/BBT拆fixture；component使用真实NandFlashDevice和EventKernel，06边界以受控port driver替代。**输入/oracle**：非对称geometry、完整state矩阵、fixed seed faults、stage reset；检查手算cycle、completion-time commit、payload、BBT及守恒。**证据等级**：unit E1，component E2；05->06->07真实路径的E3由08承担。**状态**：`PLANNED`。
+**职责**：Die 级共享物理状态的唯一 owner：blocked_dies、全局 BBT（物理 Block 身份）、全局容量耗尽视图；未来吸收 Die 温度时间线。
+
+**关键组件**：`die_blocked()/set_die_blocked()`、`bad_block_table()`、`capacity_unusable()`（`bbt.size() >= total_blocks`，CHAN-009）。**无 `reset()`**：BBT 与 blocked dies 跨系统 reset 保持不变，与旧单体设备行为一致（物理坏块身份/注入阻塞不是运行时命令状态，CHAN-005）。
+
+**输入与输出**：slice 的只读查询；写操作（BBT 标记、die 阻塞注入）仅由 RAS/测试经 02 持有的唯一实例进行，系统 reset 不触碰本对象。
+
+**状态与所有权**：跨全部 channel 共享；slice 经引用持有，只读查询，不得回写。
+
+**依赖与边界**：依赖 `MediaTopology` 与 `ras::BadBlockTable`；自身不产生事件，不操作 EventQueue。
+
+**对应需求**：CHAN-005/009；测试 CHAN-T05/09。
+
+**实现状态**：🟢 `VERIFIED`（E2，2026-09-20，`ctest` 23/23）。`openhbx_channel_partition_test` 断言跨 channel 共享 BBT 视图与全局 `CapacityUnusable`；`openhbx_media_component_test` 断言 `set_die_blocked` 导致的 `DieTemporarilyBlocked` 终态。Die 温度时间线仍为 🔴 `BLOCKED_SPEC`（MEDIA-008）。
+
+### NandChannelSlice（`include/openhbx/media/nand/nand_channel_slice.h`、`src/media/nand/nand_channel_slice.cpp`）
+
+**职责**：单个 Host Channel 拥有的 Bank 切片的介质引擎：stage FSM、Bank array EAT、`ChannelMediaPath(channel, core_die)` EAT、自有 Page/Block/payload/erase 计数。
+
+**关键组件**：`try_issue()`、`reset()`、`snapshot()`、`page_is_valid()`、`block_erase_count()`；`uses_channel_path()` 取代旧 `uses_die()`（`ReadCommand`/`ProgramData`/`EraseSetup` 预约 slice 私有 path EAT，CHAN-004）。
+
+**输入与输出**：router 分发的 `FlashCommand`（`channel` 字段须等于本 slice）-> issue result/completion。
+
+**状态与所有权**：`contexts_`/`pages_`/`erase_counts_`/`bank_eat_`/`channel_media_path_eat_` 仅含 `owned_banks` 条目；`owned_banks` 由 02 在装配期从 `ChannelTopology::banks_by_channel` 展开注入（ownership 唯一来源仍是 04，ADR-CHAN-004）。validate 首查 ownership 成员资格，违例 typed reject 零副作用（CHAN-006）。
+
+**依赖与边界**：持有 `DieDomain&`（只读）、`EventQueue&`、独立 `HandlerId`（`kMediaSliceHandlerBase + channel`）与 slice 本地 generation；reset 调用 `EventQueue::discard_generation(handler, generation)` 作用域版本，不波及其他 slice（CHAN-007）。`max_inflight` 为每 slice 上限（CHAN-010）。
+
+**对应需求**：CHAN-003/004/006/010/012；测试 CHAN-T03/04/06。
+
+**实现状态**：🟢 `VERIFIED`（E2，2026-09-20，`ctest` 23/23）。`openhbx_channel_partition_test` 断言 ownership 拒绝零副作用、同 core die 双 channel 完成周期一致（证明全局 die 总线已删除）、reset 隔离与每 slice 守恒；`openhbx_media_flash_semantics_test` 在新装配下保持 stage/commit/backpressure 断言。未覆盖：CHAN-010 的「全局 = Σ slice」语义与 CHAN-012 的汇总一致性未断言。**统计口径**：`snapshot()` 中 `inflight`/`queued_events`/`committed_pages`/`stale_events` 为 slice 私有、可跨 channel 求和；`bad_blocks` 取自共享 `DieDomain` 全局 BBT，每 slice 读数相同，求和会把 stack 级计数放大 N 倍，须从单一 slice 或 `DieDomain` 直接读取。
+
+### NandMediaRouter（`include/openhbx/media/nand/nand_media_router.h`，header-only）
+
+**职责**：实现 `pal::IFlashMediaPort`，按 `command.channel` 分发到对应 slice；channel 越界返回 `Rejected(InvalidArgument)`。
+
+**关键组件**：`try_issue_media()`；无动态运行态，持有按 channel 值索引的 slice 指针数组（非 owning）。
+
+**输入与输出**：06 `FlashCommand` -> slice issue result。
+
+**状态与所有权**：无自有介质状态；不复制 04 ownership 表。
+
+**依赖与边界**：依赖 slice 公开接口；装配由 02 完成。
+
+**对应需求**：CHAN-002/006；测试 CHAN-T02/06。
+
+**实现状态**：🟢 `VERIFIED`（E2，2026-09-20，`ctest` 23/23）。`openhbx_channel_partition_test` 断言 channel 越界 `Rejected(InvalidArgument)` 与按 channel 正确分发。端到端 channel 保真（CHAN-002）目前仅由 S8 系统测试与 16 channel 性能测试隐式覆盖，无专用 oracle。
+
+### 07测试文件（`tests/unit/media/nand/test_*.cpp`、`tests/unit/ras/test_*.cpp`、`tests/component/media/test_media_component.cpp`、`tests/component/media/test_channel_partition.cpp`）
+
+**测试域**：unit按Topology、State/Page、EAT、Timing、Reliability/BBT拆fixture；component使用真实 `DieDomain`+`NandChannelSlice`（+`NandMediaRouter`）与 EventKernel，06边界以受控port driver替代。`test_media_component.cpp`/`test_flash_semantics.cpp` 以单 channel 装配（一个 slice 拥有全部 Bank）覆盖既有 MEDIA 语义；`test_channel_partition.cpp` 以双 channel 装配覆盖 CHAN 系列分片不变量。**输入/oracle**：非对称geometry、完整state矩阵、fixed seed faults、stage reset、错误归属命令；检查手算cycle、completion-time commit、payload、BBT、跨 slice 隔离及守恒。**证据等级**：unit E1，component E2；05->06->07真实路径的E3由08承担。**状态**：🟢 `VERIFIED`（E1/E2 范围，2026-09-20）。
 
 每个source实现对应header契约；不得引入NVMe、传统L2P/GC、TSV映射或Host status。
 
@@ -292,6 +351,18 @@ BBT提交后通过窄typed事件通知04，事件不得暴露07内部容器。04
 | VER-MEDIA-007 | 各stage reset | same-cycle边界 | stale不提交且exactly once | E3 |
 | VER-MEDIA-008 | sourced vendor profile | temperature bands | golden结果可重放 | E4 |
 
+### 2026-09-16 实验设计与首个新增实验
+
+新增 `openhbx_media_flash_semantics_test`（`VER-MEDIA-003`、`VER-MEDIA-004`，E1），位置为
+`tests/unit/media/nand/test_flash_semantics.cpp`。该测试使用最小非对称 geometry 和固定
+payload，覆盖：Program completion 的最早 cycle（提前 dispatch 不得完成）、Program 后
+重复 Program 的拒绝及零副作用、Erase 仅清除目标 block、以及 erased-page Read 的
+`ReadErasedPage`/`data_valid=false` 语义。测试通过 `tests/unit/media/nand/CMakeLists.txt`
+注册并由 CTest label `openhbx_s3;openhbx_media` 执行；正式 artifact 应写入
+`build/artifacts/stages/s3/EXP-S3-NAND-MEDIA/<UTC-run>/`，manifest 记录 Conda 环境、配置、
+seed=`not-applicable`、固定 workload、cycle budget 和 replay 命令。该实验只证明 NAND
+组件局部语义，不升级 E3/E4 或完整 Flash pipeline 状态。
+
 正式执行与artifact遵循[`实验与测试执行规范.md`](实验与测试执行规范.md)。TimingOnly不能用于逐byte数据正确性证据。
 
 ## 10. 实施顺序、ADR与完成定义
@@ -305,3 +376,6 @@ BBT提交后通过窄typed事件通知04，事件不得暴露07内部容器。04
 | ADR-07-003 | synthetic/profile参数必须标来源 | OCP无NAND内部时序 | 隐式默认 | 客观可核查 | 配置更严格 | `PLANNED` |
 
 完成定义：所有文件/CMake接入；MEDIA-001至007达到相应证据且真实pipeline drain；payload、state、token和event守恒；MEDIA-008仅在公开/vendor profile与E4 golden齐备后解除`BLOCKED_SPEC`。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

@@ -60,7 +60,7 @@ int main() {
 
   // Occupy the sole PAL credit. The complete DLU must retain its S4 reservation
   // while PAL Busy has no PAL/event/token side effects.
-  assert(pal.try_issue({Token(999), Generation(0), media::CommandKind::Read, {}, 0, {}},
+  assert(pal.try_issue({Token(999), Generation(0), media::CommandKind::Read, ChannelId(0), {}, 0, {}},
                        Cycle(0)).code == AdmissionCode::Accepted);
   for (std::uint64_t i = 0; i < 64; ++i)
     assert(controller.submit(write(i + 1, i), Cycle(1)).code == AdmissionCode::Accepted);

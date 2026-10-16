@@ -34,6 +34,18 @@ int main(int argc, char** argv) {
     if (!resolved) throw std::runtime_error("HBF configuration rejected");
     auto built = openhbx::OpenHbxSystem::compose(resolved.take_value());
     if (!built) throw std::runtime_error(built.error);
+    // Ramulator-style log control: OPENHBX_LOG_LEVEL=error|warn|info|debug|trace|off
+    // (the system prints Warn+ events to std::clog by default).
+    if (const char* level = std::getenv("OPENHBX_LOG_LEVEL")) {
+      const std::string value(level);
+      if (value == "error") built.system->set_log_level(openhbx::LogLevel::Error);
+      else if (value == "warn") built.system->set_log_level(openhbx::LogLevel::Warn);
+      else if (value == "info") built.system->set_log_level(openhbx::LogLevel::Info);
+      else if (value == "debug") built.system->set_log_level(openhbx::LogLevel::Debug);
+      else if (value == "trace") built.system->set_log_level(openhbx::LogLevel::Trace);
+      else if (value == "off") built.system->set_log_sink({});
+      else throw std::runtime_error("invalid OPENHBX_LOG_LEVEL: " + value);
+    }
     if (const char* resolved_path = std::getenv("OPENHBX_RESOLVED_CONFIG_OUT")) {
       std::ofstream resolved_output(resolved_path);
       if (!resolved_output) throw std::runtime_error("cannot write resolved config");
@@ -94,10 +106,22 @@ int main(int argc, char** argv) {
         ++completed;
         const auto status = static_cast<unsigned>(completion.command_status);
         if (status < command_status_counts.size()) ++command_status_counts[status];
+        // FNV-1a64 over the returned payload lets traces verify data
+        // round-trip contents without dumping full pages to stdout.
+        std::uint64_t payload_hash = 0;
+        if (completion.data_valid) {
+          std::uint64_t hash = 1469598103934665603ull;
+          for (const auto byte : completion.payload.bytes()) {
+            hash ^= byte;
+            hash *= 1099511628211ull;
+          }
+          payload_hash = hash;
+        }
         std::cout << completion.token.value() << ' '
                   << completion.completed_at.value() << ' '
                   << status << ' '
-                  << (completion.data_valid ? completion.payload.size() : 0) << '\n';
+                  << (completion.data_valid ? completion.payload.size() : 0)
+                  << ' ' << payload_hash << '\n';
       };
       for (;;) {
         const auto result = bridge.try_submit(request);

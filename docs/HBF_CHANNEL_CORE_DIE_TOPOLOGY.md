@@ -105,6 +105,13 @@ payload transfer。如果vendor profile声明
 OCP默认。若03 profile已对同一Core-side传输段计时，则必须关闭05的对应path，
 避免同一字节重复计费。
 
+> **实现状态注记（2026-09-20）**：本节冻结的 `BankArray(core,die,bank)` +
+> `ChannelMediaPath(channel,core)` 资源模型已通过 channel 分片重构落地——
+> 单体 `NandFlashDevice` 的全局 `die_eat_` 总线被每 Channel 私有的
+> `ChannelMediaPath` EAT 取代。实现架构、类设计与需求追踪见
+> [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md)
+> （CHAN-003/004）。
+
 ## 5. 状态所有权
 
 - `MediaTopology`的PageKey只由CoreDie/Die/Bank/Block/Page构成；

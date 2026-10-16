@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/LLD_01_HBF_PRODUCT_CONFIGURATION.md`
 **对应HLD完整路径**：`docs/HLD_01_HBF_PRODUCT_CONFIGURATION.md`
-**客观状态**：⚪ `PLANNED`；规范字段提取项为🔴 `BLOCKED_SPEC`
+**客观状态**：🟡 `PARTIAL`；解析、profile、resolved config、registry和composer已实现，完整系统装配证据仍待补齐。规范字段提取项为🔴 `BLOCKED_SPEC`
 **适用基线**：OCP HBF v0.7.0；当前 `thirdparty/ramulator2`
 **覆盖需求**：`CFG-001`至`CFG-012`
 
@@ -199,7 +199,12 @@ canonicalize; compute hash; freeze
 | `topology.host_channels` | count | profile值，1..16 | ownership可构造 | 静态 |
 | `system.clock_ratio` | ratio | 1，>=1 | 可表示 | 静态 |
 | `media.geometry.*` | count | profile/synthetic | >0、乘积安全 | 静态 |
+| `model.media_max_inflight` | count | 256 | >0 | 静态 |
 | `interconnect.impl` | enum | `HbfTsvBaseline` | 能力闭包 | 静态 |
+
+`model.media_max_inflight` 的语义为**每 channel slice** 的 in-flight 上限（CHAN-010，ADR-CHAN-005）：Channel 分片后介质前端物理独立，全局介质 in-flight 上限 = `media_max_inflight` × `topology.host_channels`，不再是跨 channel 共享池。详见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) §4/§6。
+
+同样的 per-channel 语义适用于其余前端预算键（CHAN-013，ADR-CHAN-009，2026-10-15）：`model.pal_max_inflight` 为**每 channel** 的 PAL 在途上限（cube 总在途 = 该值 × `topology.host_channels`）；`model.controller_pending_dlu` 为**每 channel** 的 DLU 聚合器待聚合上限；`model.controller_ecc_credits` 为**每 channel** 的 ECC decode credit 数；`model.controller_queue_depth` 维持 **per-Bank** 语义（Bank 唯一归属 channel，天然隔离）；Fabric `queue_depth` 按路由携带的资源计费（生产装配中一条路由恰好携带一个 Channel 路径资源），不再是 cube 级全局池。
 
 错误映射遵循HLD第9章。配置统计不进入运行吞吐计数；manifest记录`config.validation_issue_count`、字段来源计数和组件清单。Debug dump按path排序，隐藏环境secret，不含pointer或wall-clock。
 

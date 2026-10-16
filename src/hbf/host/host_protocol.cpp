@@ -123,7 +123,13 @@ HostAdmission HbfHostProtocol::submit_tracked(const HostIngress& request, Cycle 
                        request.axi_interface;
       child.read_mode = request.batch ? controller::ReadMode::Batch
                                       : controller::ReadMode::Regular;
-      child.payload = request.payload;
+      if (request.operation == HostOperation::Write && request.payload.size() == request.size_bytes) {
+        const auto begin = request.payload.bytes().begin() +
+            static_cast<std::ptrdiff_t>(index * 64);
+        child.payload = PayloadHandle::from_bytes(std::vector<std::uint8_t>(begin, begin + 64));
+      } else {
+        child.payload = request.payload;
+      }
       record.children.push_back(std::move(child));
     }
   }

@@ -19,19 +19,15 @@ AdmissionResult RequestBridge::try_submit(BridgeRequest request) {
 
   hbf::host::HostIngress ingress;
   ingress.generation = system_.generation();
-  const auto channel_capacity =
-      system_.resolved_config().geometry().capacity_bytes /
-      system_.resolved_config().geometry().host_channels;
-  const auto axi_count = system_.axi_interfaces();
-  const auto axi_capacity = channel_capacity / axi_count;
-  const auto address = static_cast<std::uint64_t>(request.address);
-  if (channel_capacity == 0 || axi_capacity == 0 ||
-      address >= system_.resolved_config().geometry().capacity_bytes)
-    return AdmissionResult::rejected(RejectionReason::InvalidArgument);
-  ingress.channel = hbf::address::ChannelId(address / channel_capacity);
-  const auto channel_local = address % channel_capacity;
-  ingress.axi_interface = static_cast<std::uint8_t>(channel_local / axi_capacity);
-  ingress.address_bytes = channel_local % axi_capacity;
+  // CHAN-001: the flat->(channel, axi, local) decode lives in exactly one
+  // place (OpenHbxSystem::decode_flat_address); downstream modules receive
+  // channel explicitly.
+  const auto decoded =
+      system_.decode_flat_address(static_cast<std::uint64_t>(request.address));
+  if (!decoded) return AdmissionResult::rejected(RejectionReason::InvalidArgument);
+  ingress.channel = decoded->channel;
+  ingress.axi_interface = decoded->axi_interface;
+  ingress.address_bytes = decoded->axi_local_bytes;
   ingress.axi_id = hbf::host::AxiId(static_cast<std::uint64_t>(request.source_id) + 1);
   ingress.packet_type = hbf::host::PacketType::FlashIo;
   ingress.operation = request.type == BridgeRequestType::Read

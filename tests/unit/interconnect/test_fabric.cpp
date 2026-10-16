@@ -115,6 +115,27 @@ int main() {
   assert(grouped_route.logical_lanes.size() == 4);
   assert(grouped_route.physical_lanes.front() == 9);
 
+  // CHAN-013: queue_depth is charged per route resource (in production one
+  // channel path per route), so saturating route A never consumes route B's
+  // transfer budget.
+  TsvRepairManager isolation_repair(4, 1);
+  InterconnectFabric isolation_fabric(profile(1), isolation_repair);
+  const auto iso_a = isolation_fabric.route_for(7);
+  const auto iso_b = isolation_fabric.route_for(8);
+  assert(isolation_fabric.try_reserve({10, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_a}, Cycle(0)).code == ReservationCode::Accepted);
+  assert(isolation_fabric.try_reserve({11, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_a}, Cycle(0)).code == ReservationCode::Busy);
+  assert(isolation_fabric.try_reserve({12, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_b}, Cycle(0)).code == ReservationCode::Accepted);
+  assert(isolation_fabric.try_reserve({13, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_b}, Cycle(0)).code == ReservationCode::Busy);
+  assert(isolation_fabric.release(10));
+  assert(isolation_fabric.try_reserve({14, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_a}, Cycle(0)).code == ReservationCode::Accepted);
+  assert(isolation_fabric.try_reserve({15, Direction::Forward, TrafficClass::Command,
+                                       64, *iso_b}, Cycle(0)).code == ReservationCode::Busy);
+
   bool threw = false;
   try {
     FabricProfile bad = profile();

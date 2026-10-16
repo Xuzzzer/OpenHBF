@@ -3,7 +3,7 @@
 **文档版本**：V1.0
 **文档位置**：`docs/HLD_05_BASE_DIE_FLASH_CONTROLLER.md`
 **对应文档**：`docs/LLD_05_BASE_DIE_FLASH_CONTROLLER.md`
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）；外部参数🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
+**设计状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`；尚无本轮合规验证证据）；外部参数🔴 `BLOCKED_SPEC`（`dependency_status: BLOCKED_SPEC`）
 **适用基线**：OCP HBF v0.7.0；OpenHBX 首期 `OCP_HBF_0_7`
 
 ## 修订历史
@@ -24,16 +24,16 @@
 
 | 需求ID | 需求描述 | 优先级 | 版本 | 实现状态 |
 |---|---|---|---|---|
-| CTRL-001 | 64个sector聚合为4 KiB DLU并从首sector计时 | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-002 | overlap、上限、timeout映射0x2/0x4/0x5 | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-003 | 仅完整且04许可的DLU向PAL Program | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-004 | media commit后才产生write terminal | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-005 | 实现accumulator forwarding与0xA | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-006 | 同Bank sense有序且Regular结束Batch | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-007 | 每Bank至少两个4 KiB cache buffer | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-008 | 完整映射Read/Write status、ErrorInfo及data-valid | P0 | V1.0 | ⚪ `PLANNED` |
-| CTRL-009 | Admin、Scratchpad、lifecycle/reset有界执行 | P1 | V1.0 | ⚪ `PLANNED` |
-| CTRL-010 | 介质操作只经06 PAL且05不拥有TSV | P0 | V1.0 | ⚪ `PLANNED` |
+| CTRL-001 | 64个sector聚合为4 KiB DLU并从首sector计时 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-002 | overlap、上限、timeout映射0x2/0x4/0x5 | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-003 | 仅完整且04许可的DLU向PAL Program | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-004 | media commit后才产生write terminal | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-005 | 实现accumulator forwarding与0xA | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-006 | 同Bank sense有序且Regular结束Batch | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-007 | 每Bank至少两个4 KiB cache buffer | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-008 | 完整映射Read/Write status、ErrorInfo及data-valid | P0 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-009 | Admin、Scratchpad、lifecycle/reset有界执行 | P1 | V1.0 | 🔵 `IMPLEMENTED` |
+| CTRL-010 | 介质操作只经06 PAL且05不拥有TSV | P0 | V1.0 | 🔵 `IMPLEMENTED` |
 | CTRL-011 | vendor参数必须有来源或synthetic标签 | P1 | V1.0 | 🔴 `BLOCKED_SPEC` |
 
 | 需求ID | 来源/证据类别 | owner组件 | Test ID |
@@ -82,7 +82,7 @@
 **状态所有权**：05拥有queue、token和credit。  
 **依赖边界**：依赖02及03/04/06公开端口；不拥有TSV/NAND状态。  
 **对应需求**：CTRL-003/004/010。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.2 DluAccumulator
 
@@ -94,7 +94,7 @@
 **状态所有权**：05从首sector至terminal拥有4 KiB buffer。  
 **依赖边界**：依赖02事件和payload store，不判断04顺序。  
 **对应需求**：CTRL-001/002/005。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.3 FlashScheduler
 
@@ -106,7 +106,7 @@
 **状态所有权**：05拥有work queue。  
 **依赖边界**：依赖cache credit和06 capability，不读取PAL EAT。  
 **对应需求**：CTRL-006。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.4 BankCacheManager
 
@@ -118,7 +118,7 @@
 **状态所有权**：05拥有cache metadata和缓存payload引用。  
 **依赖边界**：依赖04 typed address和payload store；不拥有NAND Page。  
 **对应需求**：CTRL-007。  
-**实现状态**：⚪ `PLANNED`（`status: PLANNED`）。
+**实现状态**：🔵 `IMPLEMENTED`（`status: IMPLEMENTED`）。
 
 ### 3.5 EccPipeline
 
@@ -130,7 +130,7 @@
 **状态所有权**：05拥有stage credit。  
 **依赖边界**：依赖02和来源化RAS profile，不拥有raw NAND状态。  
 **对应需求**：CTRL-008/011。  
-**实现状态**：⚪ `PLANNED`；外部参数🔴 `BLOCKED_SPEC`。
+**实现状态**：🔵 `IMPLEMENTED`；外部参数🔴 `BLOCKED_SPEC`。
 
 ### 3.6 ControlPlane
 
@@ -142,7 +142,7 @@
 **状态所有权**：05拥有易失memory/admin状态。  
 **依赖边界**：依赖03 register、04 Admin端口和06 PAL。  
 **对应需求**：CTRL-009/011。  
-**实现状态**：⚪ `PLANNED`；vendor行为🔴 `BLOCKED_SPEC`。
+**实现状态**：🔵 `IMPLEMENTED`；vendor行为🔴 `BLOCKED_SPEC`。
 
 ## 4. 高层详细设计
 
@@ -198,6 +198,8 @@ write sector -> accumulate -> full -> reserve order -> [erase] -> ECC -> PAL Pro
 ## 8. 性能与资源设计
 
 accumulator内存约`max_pending_dlu * (4096 + metadata)`；cache最小`banks * 2 * 4096`；queue、ECC stage和PAL credits均有界。并行度受Host Channel、Bank cache、scheduler和PAL资源共同限制；TSV带宽/EAT由06建模，05不得重复计算。timeout、ECC latency及策略必须由带来源profile提供；synthetic值进入resolved config/artifact。
+
+资源预算按 OCP per-channel 子系统对齐（ADR-CHAN-009，2026-10-15）：DLU 聚合器 pending 与 ECC decode credits 按 channel 计费，scheduler 队列维持 per-Bank（Bank 唯一归属 channel）；单控制器实例布局不变（ADR-CHAN-008），但任一 channel 的预算耗尽或 PAL Busy 不影响其他 channel 的准入与排空（CHAN-I7，测试 CHAN-T13）。
 
 ## 9. 错误、恢复与可观测性
 

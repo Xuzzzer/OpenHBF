@@ -179,3 +179,18 @@ E3/E4 artifact最小集合严格采用实验规范第8节；另存spec locator�
 完成定义：所有工具和测试接入Conda/Docker CMake/CTest统一入口；VER-001至007按各自实际等级生成可重放artifact；只有具备规范定位和对应oracle的已提取字段才可形成E4字段证据。VER-008 gap关闭后方可声明完整OCP HBF一致性；未关闭项继续保持`BLOCKED_SPEC`或`EXTERNAL_DEPENDENCY`。
 
 当前执行证据：2026-08-30，Docker Debug、Ramulator2 OFF，`ctest -L openhbx_s9 --output-on-failure`为3/3通过；artifact位于`build/artifacts/stages/s9/EXP-S9-CONFORMANCE/20260830T103513Z/`。vector测试经过真实01至07并提供E3/E4候选字段证据；Host admission oracle因Controller为受控fake只计E2；速度等级只核对规范算式，不是吞吐饱和实验。
+
+### Flash 读取延迟与带宽实验规划（2026-09-16）
+
+读取性能实验统一复用真实 `OpenHbxSystem`、`RequestBridge` 和 64 B DLU 写入准备流程，禁止用整页伪造 Host write fixture。现有 `openhbx_flash_read_bandwidth_test` 已同时采集每个 4 KiB read 的 latency 样本（min/P50/P95/max）及批量 bytes/cycle、GB/s，因此作为第一项实验：`EXP-PERF-HOST-FLASH-READ`（`VER-PERF-001`）。
+
+后续两项实验应在该 fixture 上增量实现：
+
+- `EXP-PERF-FLASH-READ-LATENCY-SWEEP`（`VER-PERF-003`，E4-model-resource candidate）：固定已写入页面和配置，扫描 outstanding/concurrency=1,2,4,8,16，报告每档 latency min/P50/P95/max、completion cycles 和 accepted/terminal 守恒；每档都要经过真实 DLU 写入和 reset。
+- `EXP-PERF-FLASH-READ-BW-SWEEP`（`VER-PERF-004`，E4-model-resource candidate）：使用不同 bank 数量/请求批次扫描 1,2,4,8,...，报告有效 GB/s、bytes/cycle、warmup 后稳态窗口及 fabric/media theoretical ceiling；不得将 OCP/vendor wall-clock 结论从 synthetic `tCK` 推导出来。
+
+两项实验必须由独立 CTest target 注册，输出到 `build/artifacts/performance/<experiment-id>/<run-id>/`，manifest 固定 config hash、seed、workload hash、cycle budget 和 replay 命令。若 fixture 未完成完整 page program、reset 或 drain，测试必须失败，不能记录性能数字。
+
+### 读取性能结果解释（2026-09-16）
+
+本轮 Conda/Debug/CTest 复现的单 endpoint 实验为 15 次 read、61440 B、67996 simulation cycles、`0.903583 B/cycle`、`0.903583 GB/s`；latency 为 min=4533、P50=13598、P95=13599、max=13599 cycles。latency 起点是 `RequestBridge::try_submit` 接受前记录的 `system.cycle()`，终点是 `SystemCompletion.completed_at`，包含 Host、Controller、PAL/Fabric、NAND read command/sense 和返回路径，不包含宿主 wall-clock。结果通过 `4096/max(forward_command_cycles,return_data_cycles)` ceiling 检查；synthetic `tCK=1 ns` 和 media timing 不能推出真实器件规格。

@@ -31,7 +31,6 @@ class AddressValue {
 struct LocalByteAddressTag;
 struct A1Units64Tag;
 struct DluIndexTag;
-struct ChannelIdTag;
 struct CoreDieIndexTag;
 struct DieIndexTag;
 struct BankIndexTag;
@@ -45,7 +44,9 @@ struct AddressViewEpochTag;
 using LocalByteAddress = AddressValue<LocalByteAddressTag>;
 using A1Units64 = AddressValue<A1Units64Tag>;
 using DluIndex = AddressValue<DluIndexTag>;
-using ChannelId = AddressValue<ChannelIdTag>;
+// ChannelId is defined once in openhbx/common/strong_types.h (ADR-CHAN-006);
+// this alias keeps the address module's public names unchanged.
+using ChannelId = openhbx::ChannelId;
 using CoreDieIndex = AddressValue<CoreDieIndexTag>;
 using DieIndex = AddressValue<DieIndexTag>;
 using BankIndex = AddressValue<BankIndexTag>;

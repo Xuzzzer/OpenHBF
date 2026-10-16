@@ -1,9 +1,9 @@
 # OpenHBX NAND Media 与 RAS 概要设计
 
-**文档版本**：V1.0
+**文档版本**：V1.1
 **文档位置**：`docs/HLD_07_NAND_MEDIA_RAS.md`  
 **对应文档**：`docs/LLD_07_NAND_MEDIA_RAS.md`  
-**设计状态**：⚪ `PLANNED`（`status: PLANNED`）
+**设计状态**：🟡 `PARTIAL`（`status: PARTIAL`）
 **适用基线**：OCP HBF v0.7.0；首期HBF NAND synthetic/vendor profile
 
 ## 修订历史
@@ -11,6 +11,7 @@
 | 版本 | 日期 | 修订说明 |
 |---|---|---|
 | V1.0 | 2026-08-28 | 合并NAND介质、原始可靠性与环境观测边界 |
+| V1.1 | 2026-09-20 | Channel 分片：单体 facade 拆分为 `NandMediaRouter` + 每 Channel `NandChannelSlice` + 共享 `DieDomain`；全局 die bus 由 `ChannelMediaPath(channel,core)` EAT 取代。见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md) |
 
 ## 1. 模块概述
 
@@ -51,18 +52,24 @@
 ## 3. 系统架构设计
 
 ```text
-06 FlashPal -> NandFlashDevice
-  -> Topology/Legality -> CommandEngine -> Media EAT -> system EventQueue
+06 FlashPal -> NandMediaRouter (IFlashMediaPort, 按 command.channel 分发)
+  -> NandChannelSlice[channel]
+      -> Topology/Legality -> stage FSM -> Bank/ChannelMediaPath EAT -> system EventQueue
                                | event
-                               +-> Reliability + DieEnvironment
+                               +-> Reliability
                                +-> terminal transaction
-                                   StateStore + PageStore + BBT
-  <- typed MediaCompletion
+                                   自有 Page/Block/payload/erase 计数
+      <- typed MediaCompletion
+  共享: DieDomain (blocked_dies / 全局BBT / 未来温度)，slice 只读引用
 ```
+
+**Channel 分片（V1.1）**：介质不再是一个持有全部 channel 状态的单体对象。`NandChannelSlice` 仅拥有 `ChannelTopology` 判定归本 channel 的 Bank 集合（Bank array EAT、Page/Block/payload）；`ChannelMediaPath(channel, core_die)` EAT 为 slice 私有，取代原全局 `die_eat_` 总线（拓扑冻结结论 §4）；Die 级共享状态（blocked、BBT、未来温度）集中于 `DieDomain`。命令合法当且仅当 `command.channel == owner_channel(physical_bank)`，由 slice 成员资格校验结构性保证（CHAN-006）。架构、ADR 与 CHAN 需求见 [`HBF_CHANNEL_PARTITIONED_MODEL.md`](HBF_CHANNEL_PARTITIONED_MODEL.md)。
 
 | 组件 | 主要文件 | 职责 | 输入 | 输出 | 拥有状态 | 依赖 |
 |---|---|---|---|---|---|---|
-| `NandFlashDevice` | `nand_flash_device.*` | facade/capability | command | issue/completion | 装配/inflight入口 | 02/06端口 |
+| `NandMediaRouter` | `nand_media_router.*` | `IFlashMediaPort` 实现，按 channel 分发 | FlashCommand | issue/completion | 无动态状态 | slice 公开接口 |
+| `NandChannelSlice` | `nand_channel_slice.*` | 每 Channel 介质引擎（facade/capability） | command | issue/completion | 本 channel Bank 切片/inflight | 02/06端口、DieDomain |
+| `DieDomain` | `die_domain.*` | Die 级共享状态 | slice 查询/02 reset | blocked/BBT/容量视图 | blocked_dies、全局BBT | topology |
 | `MediaTopology` | `topology.*` | geometry/address resolve | physical address | resource refs | immutable geometry | config |
 | `CommandEngine` | `command_engine.*` | stage FSM | accepted command/event | completion | contexts/obligation | EAT/state/reliability |
 | `StateStore/PageStore` | `state.*`,`page_store.*` | 权威介质与数据 | terminal delta | snapshot | Page/Block/payload | topology |
@@ -85,6 +92,8 @@
 **对应需求**：MEDIA-001至008。
 
 **实现状态**：⚪ `PLANNED`。
+
+> **退役注记（V1.1）**：单体 facade 在 Channel 分片改造中由 `NandMediaRouter`（06 端口实现）、N 个 `NandChannelSlice`（介质引擎）与共享 `DieDomain`（Die 级状态）取代，装配职责上移至 02。逐文件设计见 LLD_07 第7章。
 
 ### `MediaTopology`
 
@@ -178,7 +187,7 @@ Read阶段为`command -> sense -> raw reliability -> snapshot -> complete`；Pro
 
 ## 6. 数据结构设计
 
-核心结构为`PhysicalAddress`、`PageState{Erased,PendingProgram,Valid}`、`BlockState{Good,Bad,Retired}`、`CommandContext`、`StageSpec`、`StateDelta`、`PayloadSnapshot`、`RawReadOutcome`和`MediaCompletion`。地址、token和completion跨模块定义唯一；内部resource引用不得外泄。
+核心结构为`PhysicalAddress`、`PageState{Erased,PendingProgram,Valid}`、`BlockState{Good,Bad,Retired}`、`CommandContext`、`StageSpec`、`StateDelta`、`PayloadSnapshot`、`RawReadClass`和`MediaCompletion`。地址、token和completion跨模块定义唯一；内部resource引用不得外泄。
 
 容量为`core_dies * dies * banks * blocks * pages * 4096 B`，所有乘法checked；Host Channel是Bank ownership切片，不再次乘容量。
 
@@ -221,3 +230,6 @@ typed outcome包含`Success, ReadErasedPage, RawCorrectable, RawUncorrectable, R
 | `VER-MEDIA-008` | E4 | 有来源thermal profile | 参数与结果可重放 | E4 |
 
 实验执行、证据保存和状态更新统一遵循[`实验与测试执行规范.md`](实验与测试执行规范.md)。
+
+
+> **源码同步（2026-09-15）**：当前仓库已落地对应 `include/openhbx/...` 公开接口及 `src/...` 生产实现；文档中的测试路径和验证状态仍以实际 CMake/CTest artifact 为准。仅有源码不构成 `VERIFIED` 证据。

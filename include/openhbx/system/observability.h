@@ -76,5 +76,10 @@ const char* to_string(LogLevel level) noexcept;
 const char* to_string(EventPhase phase) noexcept;
 std::string render_event_text(const ObservedEvent& event);
 std::string render_event_jsonl(const ObservedEvent& event);
+// Ramulator-style single-line console rendering: "[module] [level] cycle=... ".
+std::string render_event_console(const ObservedEvent& event);
+// Default printing sink: writes render_event_console lines to std::clog.
+// OpenHbxSystem installs it on construction; set_log_sink({}) disables output.
+void console_log(const ObservedEvent& event);
 
 }  // namespace openhbx

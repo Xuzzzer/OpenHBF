@@ -97,6 +97,19 @@ void EventQueue::discard_generation(Generation current) {
   for (auto& event : keep) events_.push(std::move(event));
 }
 
+void EventQueue::discard_generation(HandlerId handler, Generation current) {
+  std::vector<Event> keep;
+  while (!events_.empty()) {
+    Event event = events_.top();
+    events_.pop();
+    if (event.view.handler != handler || event.view.generation == current)
+      keep.push_back(std::move(event));
+    else
+      ++stale_;
+  }
+  for (auto& event : keep) events_.push(std::move(event));
+}
+
 std::size_t EventQueue::rebase_generation(Generation old_generation,
                                           Generation new_generation,
                                           HandlerId handler,

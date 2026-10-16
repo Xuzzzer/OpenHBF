@@ -169,12 +169,12 @@ experiment:
 measurement:
   requests:                   4096 reads
   transferred:                16.000 MiB
-  window:                     8884 cycles (8884.000 ns)
-  throughput:                 1888.475 GB/s (1.888 TB/s)
+  window:                     8869 cycles (8869.000 ns)
+  throughput:                 1891.669 GB/s (1.892 TB/s)
   raw_link_ceiling:           4096.000 GB/s (4.096 TB/s)
-  raw_link_utilization:       46.105 %
+  raw_link_utilization:       46.183 %
   ocp_user_target:            3072.000 GB/s (3.072 TB/s)
-  ocp_target_achievement:     61.474 %
+  ocp_target_achievement:     61.578 %
 
 checks:
   completed_requests:         PASS (4096/4096)
@@ -187,7 +187,9 @@ checks:
 result: PASS
 ```
 
-结果说明：当前synthetic拓扑为16 Core Die、每Core Die 16 Die、每Die 16 Bank。16个Host Channel均匀拥有全部4096个物理Bank，即每Channel 256 Bank。实验向每个Bank并发发出一个4 KiB读请求，共完成4096个请求并传输16 MiB；2026-09-03测量窗口为8884个模拟周期，得到1.888 TB/s。该结果低于模型的4.096 TB/s raw link上限，达到3.072 TB/s OCP用户带宽参考值的61.474%。
+结果说明：当前synthetic拓扑为16 Core Die、每Core Die 16 Die、每Die 16 Bank。16个Host Channel均匀拥有全部4096个物理Bank，即每Channel 256 Bank。实验向每个Bank并发发出一个4 KiB读请求，共完成4096个请求并传输16 MiB；2026-09-20测量窗口为8869个模拟周期，得到1.892 TB/s。该结果低于模型的4.096 TB/s raw link上限，达到3.072 TB/s OCP用户带宽参考值的61.578%。
+
+该数字相比重构前的1.888 TB/s（8884 cycles，2026-09-03）略有提升，原因是Channel分片重构删除了无规范依据的全局die总线：介质路径改为每slice私有的`ChannelMediaPath(channel, core_die)` EAT，不同Host Channel的读命令不再在Die级被串行化（ADR-CHAN-002，见 [`docs/HBF_CHANNEL_PARTITIONED_MODEL.md`](docs/HBF_CHANNEL_PARTITIONED_MODEL.md)）。本配置下提升幅度有限，因为瓶颈仍在raw link侧（利用率46%），而非介质路径。
 
 测量期间还会自动输出周期日志，例如：
 
@@ -198,7 +200,7 @@ result: PASS
 
 周期日志表示相邻2000-cycle窗口内实际完成的字节和带宽；最终`measurement`表示从开始注入到全部完成的批次平均带宽，两者口径不同。
 
-这里的1.888 TB/s是当前配置和有限批次下的 **transaction-level模拟结果**。模型将OCP目标作为报告参考，尚未覆盖所有真实协议和芯片开销，因此不能把它解释为硅片保证值。
+这里的1.892 TB/s是当前配置和有限批次下的 **transaction-level模拟结果**。模型将OCP目标作为报告参考，尚未覆盖所有真实协议和芯片开销，因此不能把它解释为硅片保证值。
 
 CTest还会把机器可读结果保存到 `build/artifacts/performance/EXP-PERF-HBF-MAX-READ/ctest/bandwidth.json`。
 
@@ -273,9 +275,19 @@ config_hash=openhbx-fnv1a64-v1:74b02c1c73517cc2 accepted=65 completed=65 cycles=
 
 `accepted=completed=65`说明所有已接受请求都产生了终态，没有遗留请求；`cycles=99`是本次工作负载使用的模拟周期数；`config_hash`与最大带宽实验一致，说明两者读取了同一个产品配置。
 
+完成的请求逐行打印到 stdout：`token completed_cycle command_status payload_bytes payload_fnv1a64`，最后一列是返回载荷的 FNV-1a64 哈希，可用于写读回环的数据正确性校验。支持的环境变量：`OPENHBX_RESOLVED_CONFIG_OUT`（导出 resolved config）、`OPENHBX_RUN_SUMMARY_OUT`（导出运行摘要 JSON）、`OPENHBX_LOG_LEVEL=error|warn|info|debug|trace|off`（控制控制台日志级别，默认 `warn`）。
+
 ## 7. 日志与输出目录
 
 OpenHBX使用结构化`ObservedEvent`。文本和JSONL日志用于诊断，不作为正确性判据。详细说明见 [`docs/OPENHBX_LOGGING_AND_OBSERVABILITY.md`](docs/OPENHBX_LOGGING_AND_OBSERVABILITY.md)。
+
+默认控制台日志为 ramulator 风格单行格式（写 `std::clog`）：
+
+```text
+[open_hbx_system] [debug] cycle=79085 phase=final_delivery op=respond stage=staged result=success token=1
+```
+
+`OpenHbxSystem` 构造时默认安装该 sink（默认级别 `Warn`，即只打印 Warn/Error）；`set_log_level` 运行时调整，`set_log_sink({})` 关闭。插桩点：compose/reset（Info）、准入 Busy/Rejected（Debug/Warn）、响应 staged（Debug）、EventQueue schedule/dispatch（Trace）、callback 异常（Error）。
 
 | 内容 | 目录 |
 |---|---|

@@ -1,6 +1,7 @@
 add_library(openhbx_media_nand STATIC
+  die_domain.cpp
+  nand_channel_slice.cpp
   nand_skeleton.cpp
-  nand_flash_device.cpp
   topology.cpp
 )
 target_include_directories(openhbx_media_nand PUBLIC ${PROJECT_SOURCE_DIR}/include)
